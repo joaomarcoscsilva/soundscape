@@ -6,6 +6,7 @@ BIRD_CLASSES = [
     "pita_sulp",
     "zono_cape",
 ]
+
 FROG_CLASSES = [
     "dend_minu",
     "apla_leuc",
@@ -14,3 +15,5 @@ FROG_CLASSES = [
     "boan_albo",
     "aden_marm",
 ]
+
+ALL_CLASSES = BIRD_CLASSES + FROG_CLASSES
