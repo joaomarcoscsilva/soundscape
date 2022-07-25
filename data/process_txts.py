@@ -15,7 +15,7 @@ def class_is_bird(species):
     return species in constants.BIRD_CLASSES
 
 
-def process_txt_file(txts_path, wav_files, period, filename):
+def process_txt_file(txts_path, wavs_path, wav_files, period, filename):
     """
     Takes a path to a .txt labels file and returns a pandas dataframe.
     """
@@ -26,15 +26,25 @@ def process_txt_file(txts_path, wav_files, period, filename):
     # Drops the columns that are not needed
     df = df.drop(columns=["Selection", "View", "Channel"])
 
-    df["file"] = filename.replace(".txt", ".wav")
-    df["period"] = period
-
     # Creates series to indicate whether a species is part of the pre-selected 12 classes (6 birds, 6 frogs)
     isBird = df["species"].apply(class_is_bird)
     isFrog = df["species"].apply(class_is_frog)
 
     # Creates a column to indicate whether a species is part of the pre-selected classes
     df["selected"] = isBird | isFrog
+
+    df["file"] = filename.replace(".txt", ".wav")
+    df["file"] = df.apply(
+        lambda x: os.path.join(
+            wavs_path,
+            "supervised" if x["selected"] else "unsupervised",
+            period,
+            x["file"],
+        ),
+        axis=1,
+    )
+
+    df["period"] = period
 
     # Indicates whether a species is a bird or a frog
     df["group"] = pd.Series(dtype=str)
@@ -43,6 +53,16 @@ def process_txt_file(txts_path, wav_files, period, filename):
 
     # Checks that the audio file exists
     df["exists"] = df["file"].apply(lambda x: x in wav_files)
+
+    # Renames some columns
+    df = df.rename(
+        columns={
+            "Begin.Time..s.": "begin_time",
+            "End.Time..s.": "end_time",
+            "Low.Freq..Hz.": "low_freq",
+            "High.Freq..Hz.": "high_freq",
+        }
+    )
 
     return df
 
@@ -57,13 +77,9 @@ if __name__ == "__main__":
     wavs_path = sys.argv[2]
 
     # Creates a list of all the audio files
-    wav_files = set(
-        os.listdir(os.path.join(wavs_path, "supervised/day"))
-        + os.listdir(os.path.join(wavs_path, "supervised/night"))
-        + os.listdir(os.path.join(wavs_path, "unsupervised/day"))
-        + os.listdir(os.path.join(wavs_path, "unsupervised/night"))
-    )
+    wav_files = set(glob(os.path.join(wavs_path, "*", "*", "*.wav")))
 
+    # Creates a list of all the periods ("day" or "night")
     periods = os.listdir(txts_path)
 
     dfs = []
@@ -72,7 +88,8 @@ if __name__ == "__main__":
         txt_files = os.listdir(os.path.join(txts_path, period))
         dfs.extend(
             map(
-                partial(process_txt_file, txts_path, wav_files, period), tqdm(txt_files)
+                partial(process_txt_file, txts_path, wavs_path, wav_files, period),
+                tqdm(txt_files),
             )
         )
 
