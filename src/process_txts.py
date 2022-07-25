@@ -69,8 +69,8 @@ def process_txt_file(txts_path, wavs_path, wav_files, period, filename):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 3:
-        print("Usage: python process_txts.py <txts-dir> <wavs-dir>")
+    if len(sys.argv) != 4:
+        print("Usage: python process_txts.py <txts-dir> <wavs-dir> <output-file>")
         sys.exit(1)
 
     txts_path = sys.argv[1]
@@ -95,4 +95,4 @@ if __name__ == "__main__":
 
     df = pd.concat(dfs)
 
-    df.to_csv("labels.csv", index=False)
+    df.to_csv(sys.argv[3], index=False)

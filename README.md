@@ -5,8 +5,3 @@ This repository contains code for applying Semi-Supervised Deep Learning methods
 ## Dataset
 
 The dataset used was provided by researchers from the [Laboratory of Spatial Ecology and Conservation (LEEC)](https://leec.eco.br/) at the [São Paulo State University](https://unesp.br/).
-
-## Code Organization
-
-### `data/`
-The [data](data/README.md) directory contains the dataset used and functions for data loading and preprocessing.
