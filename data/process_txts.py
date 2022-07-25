@@ -2,6 +2,7 @@ from functools import partial
 import pandas as pd
 import sys, os
 from tqdm import tqdm
+from glob import glob
 
 import constants
 
@@ -14,13 +15,13 @@ def class_is_bird(species):
     return species in constants.BIRD_CLASSES
 
 
-def process_txt_file(directory, period, filename):
+def process_txt_file(txts_path, wav_files, period, filename):
     """
     Takes a path to a .txt labels file and returns a pandas dataframe.
     """
 
     # Reads the .txt file
-    df = pd.read_csv(os.path.join(directory, period, filename), sep="\t")
+    df = pd.read_csv(os.path.join(txts_path, period, filename), sep="\t")
 
     # Drops the columns that are not needed
     df = df.drop(columns=["Selection", "View", "Channel"])
@@ -40,24 +41,40 @@ def process_txt_file(directory, period, filename):
     df.loc[isBird, "group"] = "bird"
     df.loc[isFrog, "group"] = "frog"
 
+    # Checks that the audio file exists
+    df["exists"] = df["file"].apply(lambda x: x in wav_files)
+
     return df
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
-        print("Usage: python process_txts.py <directory>")
+    if len(sys.argv) != 3:
+        print("Usage: python process_txts.py <txts-dir> <wavs-dir>")
         sys.exit(1)
 
-    path = sys.argv[1]
+    txts_path = sys.argv[1]
+    wavs_path = sys.argv[2]
 
-    periods = os.listdir(path)
+    # Creates a list of all the audio files
+    wav_files = set(
+        os.listdir(os.path.join(wavs_path, "supervised/day"))
+        + os.listdir(os.path.join(wavs_path, "supervised/night"))
+        + os.listdir(os.path.join(wavs_path, "unsupervised/day"))
+        + os.listdir(os.path.join(wavs_path, "unsupervised/night"))
+    )
+
+    periods = os.listdir(txts_path)
 
     dfs = []
 
     for period in periods:
-        files = os.listdir(os.path.join(path, period))
-        dfs.extend(map(partial(process_txt_file, path, period), tqdm(files)))
+        txt_files = os.listdir(os.path.join(txts_path, period))
+        dfs.extend(
+            map(
+                partial(process_txt_file, txts_path, wav_files, period), tqdm(txt_files)
+            )
+        )
 
     df = pd.concat(dfs)
 
