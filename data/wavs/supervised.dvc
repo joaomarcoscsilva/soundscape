@@ -1,0 +1,5 @@
+outs:
+- md5: 890c36a345c717cd50a0e882a93ba1aa.dir
+  size: 12474347120
+  nfiles: 2359
+  path: supervised

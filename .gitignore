@@ -1,5 +1,3 @@
-data/txts
-data/wavs
-data/*.csv
 **/__pycache__
+.vscode
 *.R
