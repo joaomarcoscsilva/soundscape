@@ -2,7 +2,6 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 import os
-import yaml
 
 import constants
 
@@ -14,7 +13,7 @@ def stack(x):
     return np.stack([x[c] for c in x.index]).T
 
 
-def pad(value):
+def pad_fn(value):
     """
     Returns a function that pads the first dimension of a numpy array with the given value.
 
@@ -34,7 +33,7 @@ def pad(value):
     return f
 
 
-def get_labels(csv_filename):
+def get_labels(settings):
     """
     Returns the contents of the `labels.csv` file in a format usable by tf.data.Dataset.from_tensor_slices.
 
@@ -50,7 +49,7 @@ def get_labels(csv_filename):
     """
 
     # Reads the csv file and selects only the desired rows
-    df = pd.read_csv(csv_filename)
+    df = pd.read_csv(os.path.join(settings["data_dir"], "labels.csv"))
     df = df[df["selected"] & df["exists"]]
 
     # Changes the types of some columns to float
@@ -73,7 +72,7 @@ def get_labels(csv_filename):
             }
         )
         .apply(stack, axis=1)
-        .apply(pad(0))
+        .apply(pad_fn(0))
         .values
     )
 
@@ -86,7 +85,7 @@ def get_labels(csv_filename):
             }
         )
         .apply(stack, axis=1)
-        .apply(pad(0))
+        .apply(pad_fn(0))
         .values
     )
 
@@ -94,53 +93,84 @@ def get_labels(csv_filename):
     labels = np.stack(
         df["species"]
         .apply(lambda x: x.apply(lambda s: constants.CLASS_INDEX[s]).values)
-        .apply(pad(-1))
+        .apply(pad_fn(-1))
         .values
     )
 
     return (filenames, time_intervals, freq_intervals, labels)
 
 
-def extract_waveform(filename, *args):
-    """
-    Extracts the waveform of a given audio file.
-    """
-    print(filename)
-    wav = tf.io.read_file(filename)
-    wav, sr = tf.audio.decode_wav(wav)
+def extract_waveform_fn(settings):
+    def f(filename, *args):
+        """
+        Extracts the waveform of a given audio file.
+        """
+        wav = tf.io.read_file(
+            tf.strings.join([settings["data_dir"], filename], separator="/")
+        )
+        wav, sr = tf.audio.decode_wav(wav)
+        wav = wav[:, 0]
 
-    return (wav, sr, *args)
+        return (wav, *args)
 
-
-def extract_melspectrogram(wav, sr, *args):
-    """
-    Extracts the melspectrogram of a given audio waveform.
-    """
-    raise NotImplementedError
+    return f
 
 
-def labels_dataset(labels_file):
+def extract_melspectrogram_fn(settings):
+    def extract_melspectrogram(wav, *args):
+        """
+        Extracts the melspectrogram of a given audio waveform.
+        """
+
+        stft = tf.signal.stft(
+            wav,
+            frame_length=settings["window_size"],
+            frame_step=settings["hop_size"],
+            fft_length=settings["n_fft"],
+            pad_end=False,
+            window_fn=getattr(tf.signal, settings["window_fn"]),
+        )
+
+        mag = tf.abs(stft)
+
+        mel = tf.signal.linear_to_mel_weight_matrix(
+            num_mel_bins=settings["n_mels"],
+            num_spectrogram_bins=mag.shape[-1],
+            sample_rate=constants.SR,
+            lower_edge_hertz=1,
+            upper_edge_hertz=constants.SR // 2,
+            dtype=tf.float32,
+        )
+
+        mel_spectrogram = tf.matmul(mag, mel)
+
+        return (mel_spectrogram, *args)
+
+    return extract_melspectrogram
+
+
+def labels_dataset(settings):
     """
     Returns a tf.data.Dataset containing the labelled audio files.
     """
-    labels = get_labels(labels_file)
+    labels = get_labels(settings)
     ds = tf.data.Dataset.from_tensor_slices(labels)
     return ds
 
 
-def waveform_dataset(labels_file):
+def waveform_dataset(settings):
     """
     Returns a tf.data.Dataset containing the labelled audio files and their waveforms.
     """
-    ds = labels_dataset(labels_file)
-    ds = ds.map(extract_waveform)
+    ds = labels_dataset(settings)
+    ds = ds.map(extract_waveform_fn(settings))
     return ds
 
 
-def melspectrogram_dataset(labels_file):
+def melspectrogram_dataset(settings):
     """
     Returns a tf.data.Dataset containing the labelled audio files and their spectrograms.
     """
-    ds = waveform_dataset(labels_file)
-    ds = ds.map(extract_melspectrogram)
+    ds = waveform_dataset(settings)
+    ds = ds.map(extract_melspectrogram_fn(settings))
     return ds
