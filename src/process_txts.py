@@ -34,14 +34,12 @@ def process_txt_file(txts_path, wavs_path, wav_files, period, filename):
     df["selected"] = isBird | isFrog
 
     df["file"] = filename.replace(".txt", ".wav")
-    df["file"] = df.apply(
-        lambda x: os.path.join(
-            wavs_path,
-            "supervised" if x["selected"] else "unsupervised",
-            period,
-            x["file"],
-        ),
-        axis=1,
+
+    df["file"] = os.path.join(
+        wavs_path,
+        "selected" if df["selected"].any() else "unselected",
+        period,
+        filename.replace(".txt", ".wav"),
     )
 
     df["period"] = period
