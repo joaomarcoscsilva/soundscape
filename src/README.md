@@ -2,7 +2,9 @@
 
 ## Modules
  - `constants.py`: Contains constants used in the project, like the classnames.
- - `dataset.py`: Contains the code for the data loaders used.
+ - `utils.py`: Contains utility functions.
+ - `dataset.py`: Contains constructors for various versions of the dataset.
+ - `dataset_functions.py`: Contains tensorflow functions used for creating the dataset.
 
 ## Scripts
 - `process_txts.py`: Generates a csv file with the labels for each audio file. Usage:
