@@ -9,14 +9,14 @@ import utils
 
 def stack(x):
     """
-    Stacks the rows of a pandas Series
+    Stack the rows of a pandas Series
     """
     return np.stack([x[c] for c in x.index]).T
 
 
-def pad_fn(value):
+def get_pad_fn(value):
     """
-    Returns a function that pads the first dimension of a numpy array with the given value.
+    Return a function that pads the first dimension of a numpy array with the given value.
 
     It is padded so that the first dimension is of length `constants.MAX_EVENTS`, which
     is the maximum number of labelled events in any audio file.
@@ -36,7 +36,7 @@ def pad_fn(value):
 
 def read_df(settings):
     """
-    Reads the dataframe containing the labelled events.
+    Read the dataframe containing the labelled events.
     """
 
     # Reads the csv file and selects only the desired rows
@@ -46,7 +46,7 @@ def read_df(settings):
     # Changes the types of some columns to float
     df.loc[:, ["begin_time", "end_time", "low_freq", "high_freq"]] = df[
         ["begin_time", "end_time", "low_freq", "high_freq"]
-    ].astype(float)
+    ].astype(np.float32)
 
     # Sorts by begin_time
     df = df.sort_values(by="begin_time")
@@ -56,7 +56,7 @@ def read_df(settings):
 
 def get_labels(settings):
     """
-    Returns the contents of the `labels.csv` file in a format usable by tf.data.Dataset.from_tensor_slices.
+    Return the contents of the `labels.csv` file in a format usable by tf.data.Dataset.from_tensor_slices.
 
     Below, we have:
         - N = number of distinct labelled audio files
@@ -86,7 +86,7 @@ def get_labels(settings):
             }
         )
         .apply(stack, axis=1)
-        .apply(pad_fn(0))
+        .apply(get_pad_fn(0))
         .values
     )
 
@@ -99,7 +99,7 @@ def get_labels(settings):
             }
         )
         .apply(stack, axis=1)
-        .apply(pad_fn(0))
+        .apply(get_pad_fn(0))
         .values
     )
 
@@ -111,9 +111,9 @@ def get_labels(settings):
                 lambda s: constants.CLASS_INDEX[s] if s in constants.CLASS_INDEX else 0
             ).values
         )
-        .apply(pad_fn(-1))
+        .apply(get_pad_fn(-1))
         .values
-    )
+    ).astype(np.int32)
 
     return {
         "filename": filenames,
@@ -123,9 +123,9 @@ def get_labels(settings):
     }
 
 
-def extract_waveform_fn(settings):
+def get_extract_waveform_fn(settings):
     """
-    Extracts the waveform of a given audio file.
+    Extract the waveform of a given audio file.
     """
 
     def f(args):
@@ -140,9 +140,9 @@ def extract_waveform_fn(settings):
     return f
 
 
-def extract_melspectrogram_fn(settings):
+def get_extract_melspectrogram_fn(settings):
     """
-    Extracts the melspectrogram of a given audio waveform.
+    Extract the melspectrogram of a given audio waveform.
     """
 
     def extract_melspectrogram(args):
@@ -173,7 +173,7 @@ def extract_melspectrogram_fn(settings):
     return extract_melspectrogram
 
 
-def fragment_borders_fn(settings):
+def get_fragment_borders_fn(settings):
     """
     To define the fragments used for training, we sample
     random intervals of length `settings["fragment_size"]`
@@ -190,24 +190,28 @@ def fragment_borders_fn(settings):
     `settings["fragment_size"]`, this function returns one
     larger fragment for each labelled event, such that the
     returned fragments contain every valid fragment according
-    to the minimum overlap requirement. This can then be at
-    train time to randomly sample a fragment of the desired
+    to the minimum overlap requirement. This can then be used
+    at train time to randomly sample a fragment of the desired
     size using random cropping.
-
-    TODO: figure out if there will be some bias, since we'll
-    sample one segment per labelled event instead of
-    proportionally to the duration of the events.
     """
 
     def fragment_borders(args):
 
         border_sizes = settings["fragment_size"] * (1 - settings["min_overlap"])
 
-        begin_times = args["time_intervals"][:, 0] - border_sizes
-        end_times = args["time_intervals"][:, 1] + border_sizes
+        is_valid_event = args["labels"] != -1
 
-        begin_times = tf.clip_by_value(begin_times, 0, 60.0 - settings["fragment_size"])
-        end_times = tf.clip_by_value(end_times, settings["fragment_size"], 60.0)
+        begin_times = tf.where(
+            is_valid_event,
+            args["time_intervals"][:, 0] - border_sizes,
+            tf.zeros_like(args["time_intervals"][:, 0]),
+        )
+
+        end_times = tf.where(
+            is_valid_event,
+            args["time_intervals"][:, 1] + border_sizes,
+            tf.zeros_like(args["time_intervals"][:, 1]),
+        )
 
         frag_intervals = tf.stack([begin_times, end_times], axis=1)
 

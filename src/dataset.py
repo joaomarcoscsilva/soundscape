@@ -1,11 +1,13 @@
 import tensorflow as tf
 
 import dataset_functions as dsfn
+import data_fragmentation
+import utils
 
 
 def labels_dataset(settings):
     """
-    Returns a tf.data.Dataset containing the labelled audio files.
+    Return a tf.data.Dataset containing the labelled audio files.
     """
     labels = dsfn.get_labels(settings)
     ds = tf.data.Dataset.from_tensor_slices(labels)
@@ -14,18 +16,37 @@ def labels_dataset(settings):
 
 def waveform_dataset(settings):
     """
-    Returns a tf.data.Dataset containing the labelled audio files and their waveforms.
+    Return a tf.data.Dataset containing the labelled audio files and their waveforms.
     """
     ds = labels_dataset(settings)
-    ds = ds.map(dsfn.extract_waveform_fn(settings))
-    ds = ds.map(dsfn.fragment_borders_fn(settings))
+    ds = ds.map(dsfn.get_extract_waveform_fn(settings))
+    ds = ds.map(dsfn.get_fragment_borders_fn(settings))
     return ds
 
 
 def melspectrogram_dataset(settings):
     """
-    Returns a tf.data.Dataset containing the labelled audio files and their spectrograms.
+    Return a tf.data.Dataset containing the labelled audio files and their spectrograms.
     """
     ds = waveform_dataset(settings)
-    ds = ds.map(dsfn.extract_melspectrogram_fn(settings))
+    ds = ds.map(dsfn.get_extract_melspectrogram_fn(settings))
     return ds
+
+
+def get_jax_process_data_fn(settings):
+    """
+    Create a function that processes a batch of data
+    from a tf.data.Dataset into a batch of data suitable
+    for training with jax.
+    """
+
+    slice_fn = data_fragmentation.get_batch_slice_fn(settings)
+
+    def jax_process_data(rng, args):
+
+        args = utils.tf2jax(args)
+        spec_frags = slice_fn(rng, args["wav"], args["frag_intervals"])
+
+        return spec_frags
+
+    return jax_process_data
