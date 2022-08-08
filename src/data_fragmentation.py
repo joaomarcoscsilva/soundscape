@@ -10,7 +10,7 @@ import constants
 
 def get_uniform_begin_time_fn(settings):
     """
-    Sample a random time from the range [minimum_time, max_time].
+    Sample random begin times from the ranges in frag_interval.
     """
 
     @jax.vmap
@@ -29,7 +29,7 @@ def get_uniform_begin_time_fn(settings):
 
 def get_fixed_begin_time_fn(settings):
     """
-    Returns a fixed time, which is centered around the fragment interval
+    Return deterministic begin times, which are centered around the fragment intervals
     """
 
     @jax.vmap

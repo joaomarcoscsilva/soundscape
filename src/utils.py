@@ -53,11 +53,11 @@ def jax2tf(x):
     return jax.tree_map(f, x)
 
 
-def time2pos(tensor_length, time, total_duration=60, ceil=False):
+def time2pos(tensor_length, time, ceil=False):
     """
     Convert a time to a position in a tensor.
     """
-    x = tensor_length * time / total_duration
+    x = tensor_length * time / 60
     if ceil:
         x = jnp.ceil(x)
     return jnp.int32(x)
