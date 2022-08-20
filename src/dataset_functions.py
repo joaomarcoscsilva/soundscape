@@ -140,6 +140,25 @@ def get_extract_waveform_fn(settings):
     return f
 
 
+def get_load_melspectrogram_fn(settings):
+    """
+    Load the mel spectrogram from a png image.
+    """
+
+    def f(args):
+        filepath = args["filename"]
+        filepath = tf.strings.regex_replace(filepath, ".wav$", ".png")
+        filepath = tf.strings.regex_replace(filepath, "wavs/", "specs/")
+        filepath = tf.strings.join([settings["data_dir"], filepath], separator="/")
+
+        spec = tf.image.decode_png(tf.io.read_file(filepath), dtype=tf.uint16)
+        spec = spec[:, :, 0]
+
+        return {"spec": spec, **args}
+
+    return f
+
+
 def get_extract_melspectrogram_fn(settings):
     """
     Extract the melspectrogram of a given audio waveform.
@@ -167,6 +186,15 @@ def get_extract_melspectrogram_fn(settings):
         )
 
         mel_spectrogram = tf.matmul(mag, mel)
+
+        mel_spectrogram = tf.math.log(mel_spectrogram + 1)
+        mel_spectrogram = mel_spectrogram - tf.reduce_mean(
+            mel_spectrogram, axis=1, keepdims=True
+        )
+        mel_spectrogram = tf.clip_by_value(mel_spectrogram, 0, 6.5)
+        mel_spectrogram = mel_spectrogram / 6.5 * 256**2
+        mel_spectrogram = tf.cast(mel_spectrogram, tf.uint16)
+        mel_spectrogram = tf.transpose(mel_spectrogram)
 
         return {"spec": mel_spectrogram, **args}
 

@@ -1,11 +1,19 @@
-from random import uniform
-import tensorflow as tf
 import jax
 from jax import numpy as jnp
 from functools import partial
 
 import utils
-import constants
+
+
+def valid_begin_interval(fragment_size, interval):
+    """
+    Get the interval containing all valid begin times of a fragment,
+    such that the total length is fragment_size.
+    """
+
+    min_val = interval[0]
+    max_val = interval[1] - fragment_size
+    return min_val, max_val
 
 
 def get_uniform_begin_time_fn(settings):
@@ -16,12 +24,14 @@ def get_uniform_begin_time_fn(settings):
     @jax.vmap
     def uniform_begin_time(rng, frag_interval):
 
-        minimum_begin_time = frag_interval[0]
-        maximum_begin_time = frag_interval[1] - settings["fragment_size"]
+        minimum_begin_time, maximum_begin_time = valid_begin_interval(
+            settings["fragment_size"], frag_interval
+        )
 
         begin_time = jax.random.uniform(
             rng, minval=minimum_begin_time, maxval=maximum_begin_time
         )
+
         return begin_time
 
     return uniform_begin_time

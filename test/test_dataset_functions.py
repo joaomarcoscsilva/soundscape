@@ -121,8 +121,8 @@ def test_extract_waveform(wavs):
 def test_extract_melspectrogram(specs):
 
     for spec in specs:
-        assert spec["spec"].shape == (10328, settings["n_mels"])
-        assert spec["spec"].dtype == np.float32
+        assert spec["spec"].shape == (settings["n_mels"], 10328)
+        assert spec["spec"].dtype == np.uint16
         assert tf.math.reduce_min(spec["spec"]) >= 0
 
 

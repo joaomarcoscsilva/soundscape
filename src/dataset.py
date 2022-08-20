@@ -1,4 +1,6 @@
 import tensorflow as tf
+from functools import wraps
+import os
 
 import dataset_functions as dsfn
 import data_fragmentation
@@ -24,12 +26,17 @@ def waveform_dataset(settings):
     return ds
 
 
-def melspectrogram_dataset(settings):
+def melspectrogram_dataset(settings, from_disk=False):
     """
     Return a tf.data.Dataset containing the labelled audio files and their spectrograms.
     """
-    ds = waveform_dataset(settings)
-    ds = ds.map(dsfn.get_extract_melspectrogram_fn(settings))
+    if not from_disk:
+        ds = waveform_dataset(settings)
+        ds = ds.map(dsfn.get_extract_melspectrogram_fn(settings))
+    else:
+        ds = labels_dataset(settings)
+        ds = ds.map(dsfn.get_fragment_borders_fn(settings))
+        ds = ds.map(dsfn.get_load_melspectrogram_fn(settings))
     return ds
 
 
