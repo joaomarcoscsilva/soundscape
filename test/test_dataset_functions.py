@@ -16,10 +16,12 @@ settings = utils.hash_dict(
         "window_size": 2048,
         "hop_size": 256,
         "n_fft": 2048,
-        "n_mels": 256,
         "window_fn": "hamming_window",
+        "n_mels": 256,
+        "min_overlap": 0.5,
         "fragment_size": 5,
-        "min_overlap" : 0.5
+        "padding_mode": "edge",
+        "begin_time_fn": "uniform",
     }
 )
 
@@ -68,22 +70,28 @@ test_indexes = [0, 1, 1000, 4260 - 1]
 def labels():
     return dsfn.get_labels(settings)
 
-
 @pytest.fixture
 def wavs(labels):
     fn = dsfn.get_extract_waveform_fn(settings)
-
+    
     def index_labels(i):
         return {k: v[i] for k, v in labels.items()}
 
     return list(map(fn, map(index_labels, test_indexes)))
-
 
 @pytest.fixture
 def specs(wavs):
     fn = dsfn.get_extract_melspectrogram_fn(settings)
     return list(map(fn, wavs))
 
+@pytest.fixture 
+def loaded_specs(labels):
+    fn = dsfn.get_load_melspectrogram_fn(settings)
+
+    def index_labels(i):
+        return {k: v[i] for k, v in labels.items()}
+
+    return list(map(fn, map(index_labels, test_indexes)))
 
 @pytest.fixture
 def frags(specs):
@@ -126,6 +134,15 @@ def test_extract_melspectrogram(specs):
         assert tf.math.reduce_min(spec["spec"]) >= 0
 
 
+def test_load_mel_spectrogram(specs, loaded_specs):
+    for spec, loaded_spec in zip(specs, loaded_specs):
+        for k in loaded_spec.keys():
+            if k != 'spec':
+                assert np.all(spec[k] == loaded_spec[k])
+            else:
+                # checks that the saved spectrogram is wrong by a difference of at most 1
+                assert tf.reduce_max(tf.abs(tf.cast(spec[k], tf.int32) - tf.cast(loaded_spec[k], tf.int32))) <= 1
+        
 def test_fragment_borders(frags):
     for frag in frags:
         interval = frag["frag_intervals"]
