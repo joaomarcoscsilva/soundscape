@@ -6,20 +6,7 @@ import os
 import utils
 import dataset
 
-settings = utils.hash_dict(
-    {
-        "data_dir": "data",
-        "window_size": 2048,
-        "hop_size": 256,
-        "n_fft": 2048,
-        "window_fn": "hamming_window",
-        "n_mels": 256,
-        "min_overlap": 0.5,
-        "fragment_size": 5,
-        "padding_mode": "edge",
-        "begin_time_fn": "uniform",
-    }
-)
+from settings import settings
 
 if __name__ == "__main__":
 
@@ -29,7 +16,7 @@ if __name__ == "__main__":
 
         # Finds the name of the image to be saved
         filename = d["filename"].numpy().decode().replace(".wav", ".png")
-        filename = os.path.join(settings["data_dir"], "specs", filename)
+        filename = os.path.join(settings["data"]["data_dir"], "specs", filename)
 
         # Creates the necessary directories if they don't exist
         if not os.path.exists(os.path.dirname(filename)):

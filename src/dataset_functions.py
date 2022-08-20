@@ -40,7 +40,7 @@ def read_df(settings):
     """
 
     # Reads the csv file and selects only the desired rows
-    df = pd.read_csv(os.path.join(settings["data_dir"], "labels.csv"))
+    df = pd.read_csv(os.path.join(settings["data"]["data_dir"], "labels.csv"))
     df = df[df["exists"]]
 
     # Changes the types of some columns to float
@@ -130,7 +130,9 @@ def get_extract_waveform_fn(settings):
 
     def f(args):
         wav = tf.io.read_file(
-            tf.strings.join([settings["data_dir"], args["filename"]], separator="/")
+            tf.strings.join(
+                [settings["data"]["data_dir"], args["filename"]], separator="/"
+            )
         )
         wav, sr = tf.audio.decode_wav(wav)
         wav = wav[:, 0]
@@ -149,7 +151,9 @@ def get_load_melspectrogram_fn(settings):
         filepath = args["filename"]
         filepath = tf.strings.regex_replace(filepath, ".wav$", ".png")
         filepath = tf.strings.regex_replace(filepath, "wavs/", "specs/")
-        filepath = tf.strings.join([settings["data_dir"], filepath], separator="/")
+        filepath = tf.strings.join(
+            [settings["data"]["data_dir"], filepath], separator="/"
+        )
 
         spec = tf.image.decode_png(tf.io.read_file(filepath), dtype=tf.uint16)
         spec = spec[:, :, 0]
@@ -167,17 +171,17 @@ def get_extract_melspectrogram_fn(settings):
     def extract_melspectrogram(args):
         stft = tf.signal.stft(
             args["wav"],
-            frame_length=settings["window_size"],
-            frame_step=settings["hop_size"],
-            fft_length=settings["n_fft"],
+            frame_length=settings["data"]["spectrogram"]["window_size"],
+            frame_step=settings["data"]["spectrogram"]["hop_size"],
+            fft_length=settings["data"]["spectrogram"]["n_fft"],
             pad_end=False,
-            window_fn=getattr(tf.signal, settings["window_fn"]),
+            window_fn=getattr(tf.signal, settings["data"]["spectrogram"]["window_fn"]),
         )
 
         mag = tf.abs(stft)
 
         mel = tf.signal.linear_to_mel_weight_matrix(
-            num_mel_bins=settings["n_mels"],
+            num_mel_bins=settings["data"]["spectrogram"]["n_mels"],
             num_spectrogram_bins=mag.shape[-1],
             sample_rate=constants.SR,
             lower_edge_hertz=10,
@@ -204,9 +208,9 @@ def get_extract_melspectrogram_fn(settings):
 def get_fragment_borders_fn(settings):
     """
     To define the fragments used for training, we sample
-    random intervals of length `settings["fragment_size"]`
+    random intervals of length `settings["data"]["fragmentation"]["fragment_size"]`
     and discard those that don't sufficiently overlap a
-    labelled event according to `settings["min_overlap"]`.
+    labelled event according to `settings["data"]["fragmentation"]["min_overlap"]`.
 
     Since this will be called inside a `tf.data.Dataset.map`
     call, we can't use the `jax.random` module since it's
@@ -215,17 +219,19 @@ def get_fragment_borders_fn(settings):
     behavior as jax.
 
     Therefore, instead of returning a single sample of size
-    `settings["fragment_size"]`, this function returns one
-    larger fragment for each labelled event, such that the
-    returned fragments contain every valid fragment according
-    to the minimum overlap requirement. This can then be used
-    at train time to randomly sample a fragment of the desired
+    `settings["data"]["fragmentation"]["fragment_size"]`, this
+    function returns one larger fragment for each labelled event,
+    such that the returned fragments contain every valid fragment
+    according to the minimum overlap requirement. This can then be
+    used at train time to randomly sample a fragment of the desired
     size using random cropping.
     """
 
     def fragment_borders(args):
 
-        border_sizes = settings["fragment_size"] * (1 - settings["min_overlap"])
+        border_sizes = settings["data"]["fragmentation"]["fragment_size"] * (
+            1 - settings["data"]["fragmentation"]["min_overlap"]
+        )
 
         is_valid_event = args["labels"] != -1
 

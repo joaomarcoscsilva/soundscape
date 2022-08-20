@@ -1,0 +1,19 @@
+seed: 0
+
+data:
+    data_dir: "data"
+
+    spectrogram:
+        window_size: 2048
+        hop_size: 256
+        n_fft: 2048
+        window_fn: "hamming_window"
+        n_mels: 256
+
+    fragmentation:
+        fragment_size: 5
+        padding_mode: "edge"
+        begin_time_fn: "uniform"
+        min_overlap: 0.5
+
+    

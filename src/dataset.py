@@ -52,7 +52,7 @@ def get_jax_process_data_fn(settings):
     def jax_process_data(rng, args):
 
         args = utils.tf2jax(args)
-        spec_frags = slice_fn(rng, args["wav"], args["frag_intervals"])
+        spec_frags = slice_fn(rng, args["spec"].T, args["frag_intervals"])
 
         return spec_frags
 

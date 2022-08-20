@@ -25,7 +25,7 @@ def get_uniform_begin_time_fn(settings):
     def uniform_begin_time(rng, frag_interval):
 
         minimum_begin_time, maximum_begin_time = valid_begin_interval(
-            settings["fragment_size"], frag_interval
+            settings["data"]["fragmentation"]["fragment_size"], frag_interval
         )
 
         begin_time = jax.random.uniform(
@@ -46,7 +46,10 @@ def get_fixed_begin_time_fn(settings):
     def fixed_begin_time(rng, frag_interval):
 
         frag_interval_middle = (frag_interval[0] + frag_interval[1]) / 2
-        begin_time = frag_interval_middle - settings["fragment_size"] / 2
+        begin_time = (
+            frag_interval_middle
+            - settings["data"]["fragmentation"]["fragment_size"] / 2
+        )
 
         return begin_time
 
@@ -71,7 +74,8 @@ def get_pad_tensor_fn(settings):
 
         pad_size = utils.time2pos(
             tensor.shape[0],
-            settings["fragment_size"] * (1 - settings["min_overlap"]),
+            settings["data"]["fragmentation"]["fragment_size"]
+            * (1 - settings["data"]["fragmentation"]["min_overlap"]),
             ceil=True,
         )
 
@@ -83,7 +87,9 @@ def get_pad_tensor_fn(settings):
             axis=0,
         )
 
-        tensor = jnp.pad(tensor, pad_mask, settings["padding_mode"])
+        tensor = jnp.pad(
+            tensor, pad_mask, settings["data"]["fragmentation"]["padding_mode"]
+        )
 
         begin_time = begin_time + pad_size
 
@@ -94,7 +100,7 @@ def get_pad_tensor_fn(settings):
 
 def get_slice_fn(settings):
     """
-    Return a slice of the given tensor starting from begin_time with a length of settings["fragment_size"].
+    Return a slice of the given tensor starting from begin_time with a length of settings["data"]["fragmentation"]["fragment_size"].
     """
 
     @partial(jax.vmap, in_axes=(None, 0, None))
@@ -102,7 +108,9 @@ def get_slice_fn(settings):
 
         begin_pos = utils.time2pos(valid_length, begin_time)
 
-        fragment_size = utils.time2pos(valid_length, settings["fragment_size"])
+        fragment_size = utils.time2pos(
+            valid_length, settings["data"]["fragmentation"]["fragment_size"]
+        )
 
         one_mask = jnp.array([1] + [0] * (len(tensor.shape) - 1), dtype=jnp.int32)
         shape_mask = jnp.array(tensor.shape) * (1 - one_mask)
@@ -130,7 +138,9 @@ def get_batch_slice_fn(settings):
         A tensor of shape (n_fragments, fragment_size) containing the fragments sliced from the tensor.
     """
 
-    begin_time_fn = begin_time_fns[settings["begin_time_fn"]](settings)
+    begin_time_fn = begin_time_fns[settings["data"]["fragmentation"]["begin_time_fn"]](
+        settings
+    )
     pad_tensor_fn = get_pad_tensor_fn(settings)
     slice_fn = get_slice_fn(settings)
 

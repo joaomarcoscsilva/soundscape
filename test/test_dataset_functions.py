@@ -10,20 +10,7 @@ import dataset_functions as dsfn
 import constants
 import utils
 
-settings = utils.hash_dict(
-    {
-        "data_dir": "data",
-        "window_size": 2048,
-        "hop_size": 256,
-        "n_fft": 2048,
-        "window_fn": "hamming_window",
-        "n_mels": 256,
-        "min_overlap": 0.5,
-        "fragment_size": 5,
-        "padding_mode": "edge",
-        "begin_time_fn": "uniform",
-    }
-)
+from settings import settings
 
 
 @pytest.mark.parametrize(
@@ -129,7 +116,7 @@ def test_extract_waveform(wavs):
 def test_extract_melspectrogram(specs):
 
     for spec in specs:
-        assert spec["spec"].shape == (settings["n_mels"], 10328)
+        assert spec["spec"].shape == (settings["data"]["spectrogram"]["n_mels"], 10328)
         assert spec["spec"].dtype == np.uint16
         assert tf.math.reduce_min(spec["spec"]) >= 0
 
@@ -157,8 +144,8 @@ def test_fragment_borders(frags):
                 assert interval[i, 0] == interval[i, 1] == 0
 
             else:
-                # Checks that the size of the fragment is at least settings["fragment_size"]
-                assert interval[i, 1] - interval[i, 0] > settings["fragment_size"]
+                # Checks that the size of the fragment is at least settings["data"]["fragmentation"]["fragment_size"]
+                assert interval[i, 1] - interval[i, 0] > settings["data"]["fragmentation"]["fragment_size"]
 
                 # Checks that the fragment contains a labelled event
                 assert interval[i, 0] < frag["time_intervals"][i, 0]

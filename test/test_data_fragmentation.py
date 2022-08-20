@@ -6,20 +6,7 @@ from jax import numpy as jnp
 import data_fragmentation
 import utils
 
-settings = utils.hash_dict(
-    {
-        "data_dir": "data",
-        "window_size": 2048,
-        "hop_size": 256,
-        "n_fft": 2048,
-        "window_fn": "hamming_window",
-        "n_mels": 256,
-        "min_overlap": 0.5,
-        "fragment_size": 5,
-        "padding_mode": "edge",
-        "begin_time_fn": "fixed",
-    }
-)
+from settings import settings
 
 
 @pytest.mark.parametrize(
@@ -47,7 +34,10 @@ def rngs(rng):
 def assert_valid_begin_times(frag_intervals, begin_times):
     assert begin_times.shape == (len(frag_intervals),)
     assert (begin_times >= frag_intervals[:, 0]).all()
-    assert (begin_times + settings["fragment_size"] <= frag_intervals[:, 1]).all()
+    assert (
+        begin_times + settings["data"]["fragmentation"]["fragment_size"]
+        <= frag_intervals[:, 1]
+    ).all()
 
 
 uniform_begin_time_fn = data_fragmentation.get_uniform_begin_time_fn(settings)
