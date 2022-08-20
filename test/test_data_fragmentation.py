@@ -22,6 +22,18 @@ settings = utils.hash_dict(
 )
 
 
+@pytest.mark.parametrize(
+    "fragment_size,interval,expected",
+    [
+        (1, (0, 10), (0, 9)),
+        (2, (2, 8), (2, 6)),
+        (0, (1, 5), (1, 5)),
+    ],
+)
+def test_valid_begin_interval(fragment_size, interval, expected):
+    assert data_fragmentation.valid_begin_interval(fragment_size, interval) == expected
+
+
 @pytest.fixture
 def rng():
     return jax.random.PRNGKey(0)
