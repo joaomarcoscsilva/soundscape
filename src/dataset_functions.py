@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 import os
+from functools import cache
 
 import constants
 import utils
@@ -54,6 +55,7 @@ def read_df(settings):
     return df
 
 
+@cache
 def get_labels(settings):
     """
     Return the contents of the `labels.csv` file in a format usable by tf.data.Dataset.from_tensor_slices.
@@ -103,6 +105,9 @@ def get_labels(settings):
         .values
     )
 
+    # Number of valid events for each audio file
+    num_events = df["species"].size().values.astype(np.int32)
+
     # List of labels
     labels = np.stack(
         df["species"]
@@ -115,11 +120,15 @@ def get_labels(settings):
         .values
     ).astype(np.int32)
 
+    indexes = np.arange(len(filenames), dtype=np.int32)
+
     return {
         "filename": filenames,
         "time_intervals": time_intervals,
         "freq_intervals": freq_intervals,
         "labels": labels,
+        "num_events": num_events,
+        "index": indexes,
     }
 
 
@@ -199,6 +208,8 @@ def get_extract_melspectrogram_fn(settings):
         mel_spectrogram = mel_spectrogram / 6.5 * 256**2
         mel_spectrogram = tf.cast(mel_spectrogram, tf.uint16)
         mel_spectrogram = tf.transpose(mel_spectrogram)
+
+        args.pop("wav")
 
         return {"spec": mel_spectrogram, **args}
 

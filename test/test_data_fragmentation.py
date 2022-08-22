@@ -1,7 +1,10 @@
 from random import uniform
+
 import jax
 import pytest
 from jax import numpy as jnp
+import tensorflow as tf
+import numpy as np
 
 import data_fragmentation
 import utils
@@ -162,3 +165,44 @@ batch_slice_fn = data_fragmentation.get_batch_slice_fn(settings)
 def test_batch_slice_fn(rng, tensor, frag_intervals, expected):
     slices = batch_slice_fn(rng, tensor, frag_intervals)
     assert (slices == expected).all()
+
+
+def test_fragmentation_fn():
+
+    _ = data_fragmentation.get_jax_fragmentation_fn(settings)
+    jax_process_data, flatten_inputs_fn, unflatten_outputs_fn, output_types = _
+
+    example_instance = {
+        "filename": "/path/to/file",
+        "time_intervals": [[0.0, 5.0], [1.0, 6.0], [2.0, 7.0], [0.0, 0.0]],
+        "freq_intervals": [[440.0, 880.0], [440.0, 880.0], [440.0, 880.0], [0.0, 0.0]],
+        "frag_intervals": [[1.0, 10.0], [2.0, 50.0], [3.0, 60.0], [0.0, 0.0]],
+        "labels": [0, 1, 2, -1],
+        "num_events": 3,
+        "rng": np.array(jax.random.PRNGKey(0)),
+        "spec": np.zeros((256, 6000), dtype=np.uint16),
+    }
+
+    example_instance = {k: tf.constant(v) for k, v in example_instance.items()}
+
+    flattened_instance = flatten_inputs_fn(example_instance)
+    flattened_fragments = jax_process_data(*flattened_instance)
+    fragments = unflatten_outputs_fn(flattened_fragments)
+
+    n = example_instance["num_events"]
+    assert tf.math.reduce_all(
+        fragments["filename"] == tf.repeat(example_instance["filename"], n)
+    )
+    assert tf.math.reduce_all(
+        fragments["time_intervals"] == example_instance["time_intervals"][0:n]
+    )
+    assert fragments["slice"].shape == (
+        3,
+        100 * settings["data"]["fragmentation"]["fragment_size"],
+        256,
+    )
+
+    flattened_dtypes = [x.dtype for x in flattened_fragments]
+
+    for d1, d2 in zip(flattened_dtypes, output_types):
+        assert d1 == d2

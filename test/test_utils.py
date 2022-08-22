@@ -34,11 +34,8 @@ def test_parallel_map(fn, x):
     [
         [1, 2, 3, 4, 5],
         [1],
-        {
-            "a": [1, 2],
-            "b": [3, 4],
-            "c": [[5], [6]],
-        },
+        {"a": [1, 2], "b": [3, 4], "c": [[5], [6]], "d": "string"},
+        "string",
     ],
 )
 def test_tf_jax(array):
@@ -47,7 +44,9 @@ def test_tf_jax(array):
         x_jax = jnp.array(array)
     else:
         x_tf = jax.tree_util.tree_map(tf.constant, array)
-        x_jax = jax.tree_util.tree_map(jnp.array, array)
+        x_jax = jax.tree_util.tree_map(
+            lambda x: jnp.array(x) if type(x) != str else x, array
+        )
 
     y_jax = utils.tf2jax(x_tf)
     y_tf = utils.jax2tf(x_jax)
@@ -73,17 +72,24 @@ def test_time2pos(tensor_length, time, expected):
     assert result == expected
 
 
+def assert_dicts_equal(d1, d2):
+    assert d1.keys() == d2.keys()
+    for key in d1.keys():
+        if type(d1[key]) == dict:
+            assert_dicts_equal(d1[key], d2[key])
+        else:
+            assert d1[key] == d2[key]
+
+
 @pytest.mark.parametrize(
     "d",
     [
-        ({"a": 1, "b": 2},),
-        ({"a": 3, "b": 4},),
+        {"a": 1, "b": 2},
+        {"a": 3, "b": 4},
+        {"a": {"c": 5, "d": 6}, "b": 2},
     ],
 )
 def test_hash_dict(d):
-
     d_hashed = utils.hash_dict(d)
-    for k, v in d:
-        assert d_hashed[k] == v
-
+    assert_dicts_equal(d, d_hashed)
     assert hash(d_hashed) is not None

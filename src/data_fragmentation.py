@@ -1,6 +1,7 @@
 import jax
 from jax import numpy as jnp
 from functools import partial
+import tensorflow as tf
 
 import utils
 
@@ -21,6 +22,7 @@ def get_uniform_begin_time_fn(settings):
     Sample random begin times from the ranges in frag_interval.
     """
 
+    @jax.jit
     @jax.vmap
     def uniform_begin_time(rng, frag_interval):
 
@@ -42,6 +44,7 @@ def get_fixed_begin_time_fn(settings):
     Return deterministic begin times, which are centered around the fragment intervals
     """
 
+    @jax.jit
     @jax.vmap
     def fixed_begin_time(rng, frag_interval):
 
@@ -151,3 +154,93 @@ def get_batch_slice_fn(settings):
         return slice_fn(padded_tensor, padded_begin_times, tensor.shape[0])
 
     return batch_slice
+
+
+def get_jax_fragmentation_fn(settings):
+    """
+    Create a function that processes a batch of data
+    from a tf.data.Dataset into a batch of data suitable
+    for training with jax.
+
+    The returned values for this function are very
+    awkward, since they need to be used inside a
+    tf.py_function call.
+    """
+
+    slice_fn = get_batch_slice_fn(settings)
+
+    def jax_process_data(
+        filename,
+        frag_intervals,
+        freq_intervals,
+        labels,
+        num_events,
+        time_intervals,
+        rng,
+        spec,
+    ):
+
+        rng_jax = utils.tf2jax(rng)
+        spec_jax = utils.tf2jax(spec)
+        frag_intervals_jax = utils.tf2jax(frag_intervals)
+
+        slices = slice_fn(
+            rng_jax,
+            spec_jax.T,
+            frag_intervals_jax,
+        )
+        slices = utils.jax2tf(slices)
+
+        filename = tf.repeat(filename, num_events)
+        frag_intervals = frag_intervals[0:num_events]
+        freq_intervals = freq_intervals[0:num_events]
+        labels = labels[0:num_events]
+        time_intervals = time_intervals[0:num_events]
+        slices = slices[0:num_events]
+
+        num_events = tf.repeat(num_events, num_events)
+
+        return [
+            filename,
+            frag_intervals,
+            freq_intervals,
+            labels,
+            num_events,
+            slices,
+            time_intervals,
+        ]
+
+    flatten_inputs_fn = lambda args: (
+        args["filename"],
+        args["frag_intervals"],
+        args["freq_intervals"],
+        args["labels"],
+        args["num_events"],
+        args["time_intervals"],
+        args["rng"],
+        args["spec"],
+    )
+
+    output_keys = [
+        "filename",
+        "frag_intervals",
+        "freq_intervals",
+        "labels",
+        "num_events",
+        "slice",
+        "time_intervals",
+    ]
+
+    unflatten_outputs_fn = lambda outputs: dict(zip(output_keys, outputs))
+
+    output_types = [
+        tf.string,
+        tf.float32,
+        tf.float32,
+        tf.int32,
+        tf.int32,
+        tf.uint16,
+        tf.float32,
+    ]
+
+    return jax_process_data, flatten_inputs_fn, unflatten_outputs_fn, output_types

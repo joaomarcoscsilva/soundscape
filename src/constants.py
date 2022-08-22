@@ -18,7 +18,7 @@ FROG_CLASSES = [
 
 ALL_CLASSES = BIRD_CLASSES + FROG_CLASSES
 
-CLASS_INDEX = {c: i+1 for i, c in enumerate(ALL_CLASSES)}
+CLASS_INDEX = {c: i + 1 for i, c in enumerate(ALL_CLASSES)}
 
 MAX_EVENTS = 18
 

@@ -1,6 +1,6 @@
 import tensorflow as tf
-from functools import wraps
-import os
+import jax
+import numpy as np
 
 import dataset_functions as dsfn
 import data_fragmentation
@@ -11,6 +11,7 @@ def labels_dataset(settings):
     """
     Return a tf.data.Dataset containing the labelled audio files.
     """
+
     labels = dsfn.get_labels(settings)
     ds = tf.data.Dataset.from_tensor_slices(labels)
     return ds
@@ -20,6 +21,7 @@ def waveform_dataset(settings):
     """
     Return a tf.data.Dataset containing the labelled audio files and their waveforms.
     """
+
     ds = labels_dataset(settings)
     ds = ds.map(dsfn.get_extract_waveform_fn(settings))
     ds = ds.map(dsfn.get_fragment_borders_fn(settings))
@@ -30,6 +32,7 @@ def melspectrogram_dataset(settings, from_disk=False):
     """
     Return a tf.data.Dataset containing the labelled audio files and their spectrograms.
     """
+
     if not from_disk:
         ds = waveform_dataset(settings)
         ds = ds.map(dsfn.get_extract_melspectrogram_fn(settings))
@@ -37,23 +40,50 @@ def melspectrogram_dataset(settings, from_disk=False):
         ds = labels_dataset(settings)
         ds = ds.map(dsfn.get_fragment_borders_fn(settings))
         ds = ds.map(dsfn.get_load_melspectrogram_fn(settings))
+
     return ds
 
 
-def get_jax_process_data_fn(settings):
+def add_rng(ds, rng):
     """
-    Create a function that processes a batch of data
-    from a tf.data.Dataset into a batch of data suitable
-    for training with jax.
+    Add a random seed zipped with each element in the dataset.
     """
 
-    slice_fn = data_fragmentation.get_batch_slice_fn(settings)
+    rngs = jax.random.split(rng, len(ds))
+    rngs = np.array(rngs)
+    rngs = tf.constant(rngs)
 
-    def jax_process_data(rng, args):
+    def add_rng(args):
+        return {"rng": rngs[args["index"]], **args}
 
-        args = utils.tf2jax(args)
-        spec_frags = slice_fn(rng, args["spec"].T, args["frag_intervals"])
+    return ds.map(add_rng)
 
-        return spec_frags
 
-    return jax_process_data
+def fragment_dataset(settings, ds, rng):
+    """
+    Fragments a dataset into fragments of the size specified in settings.
+    This function must be called every epoch with different rng values.
+    Note that train/validation/test splits must be done before calling this function.
+    """
+
+    ds = add_rng(ds, rng)
+
+    (
+        fn,
+        flatten_inputs_fn,
+        unflatten_outputs_fn,
+        output_types,
+    ) = data_fragmentation.get_jax_fragmentation_fn(settings)
+
+    def f(args):
+        flattened_args = flatten_inputs_fn(args)
+        flattened_args = tf.py_function(fn, flattened_args, output_types)
+        args = unflatten_outputs_fn(flattened_args)
+        return tf.data.Dataset.from_tensor_slices(args)
+
+    ds = ds.flat_map(f)
+
+    num_samples = dsfn.get_labels(settings)["num_events"].sum()
+    ds = ds.apply(tf.data.experimental.assert_cardinality(num_samples))
+
+    return ds

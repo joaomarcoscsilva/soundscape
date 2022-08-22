@@ -34,7 +34,7 @@ def tf2jax(x):
             x = tf.experimental.dlpack.to_dlpack(x)
             x = jax.dlpack.from_dlpack(x)
         else:
-            x = x.numpy()
+            x = x.numpy().decode()
         return x
 
     return jax.tree_map(f, x)
@@ -46,8 +46,11 @@ def jax2tf(x):
     """
 
     def f(x):
-        x = jax.dlpack.to_dlpack(x)
-        x = tf.experimental.dlpack.from_dlpack(x)
+        if type(x) not in {str, bytes}:
+            x = jax.dlpack.to_dlpack(x)
+            x = tf.experimental.dlpack.from_dlpack(x)
+        else:
+            x = tf.constant(x)
         return x
 
     return jax.tree_map(f, x)
@@ -67,6 +70,13 @@ class hash_dict(dict):
     """
     A dictionary that is hashable
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        for k, v in self.items():
+            if isinstance(v, dict):
+                self[k] = hash_dict(v)
 
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
