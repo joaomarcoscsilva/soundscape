@@ -7,39 +7,39 @@ import data_fragmentation
 import utils
 
 
-def labels_dataset(settings):
+def labels_dataset():
     """
     Return a tf.data.Dataset containing the labelled audio files.
     """
 
-    labels = dsfn.get_labels(settings)
+    labels = dsfn.get_labels()
     ds = tf.data.Dataset.from_tensor_slices(labels)
     return ds
 
 
-def waveform_dataset(settings):
+def waveform_dataset():
     """
     Return a tf.data.Dataset containing the labelled audio files and their waveforms.
     """
 
-    ds = labels_dataset(settings)
-    ds = ds.map(dsfn.get_extract_waveform_fn(settings))
-    ds = ds.map(dsfn.get_fragment_borders_fn(settings))
+    ds = labels_dataset()
+    ds = ds.map(dsfn.extract_waveform)
+    ds = ds.map(dsfn.fragment_borders)
     return ds
 
 
-def melspectrogram_dataset(settings, from_disk=False):
+def melspectrogram_dataset(from_disk=False):
     """
     Return a tf.data.Dataset containing the labelled audio files and their spectrograms.
     """
 
     if not from_disk:
-        ds = waveform_dataset(settings)
-        ds = ds.map(dsfn.get_extract_melspectrogram_fn(settings))
+        ds = waveform_dataset()
+        ds = ds.map(dsfn.extract_melspectrogram)
     else:
-        ds = labels_dataset(settings)
-        ds = ds.map(dsfn.get_fragment_borders_fn(settings))
-        ds = ds.map(dsfn.get_load_melspectrogram_fn(settings))
+        ds = labels_dataset()
+        ds = ds.map(dsfn.fragment_borders)
+        ds = ds.map(dsfn.load_melspectrogram)
 
     return ds
 
@@ -59,7 +59,7 @@ def add_rng(ds, rng):
     return ds.map(add_rng)
 
 
-def fragment_dataset(settings, ds, rng):
+def fragment_dataset(ds, rng):
     """
     Fragments a dataset into fragments of the size specified in settings.
     This function must be called every epoch with different rng values.
@@ -68,22 +68,37 @@ def fragment_dataset(settings, ds, rng):
 
     ds = add_rng(ds, rng)
 
-    (
-        fn,
-        flatten_inputs_fn,
-        unflatten_outputs_fn,
-        output_types,
-    ) = data_fragmentation.get_jax_fragmentation_fn(settings)
+    input_keys = {
+        "filename",
+        "labels",
+        "num_events",
+        "index",
+        "frag_intervals",
+        "freq_intervals",
+        "time_intervals",
+        "rng",
+        "spec",
+    }
 
-    def f(args):
-        flattened_args = flatten_inputs_fn(args)
-        flattened_args = tf.py_function(fn, flattened_args, output_types)
-        args = unflatten_outputs_fn(flattened_args)
-        return tf.data.Dataset.from_tensor_slices(args)
+    output_types = {
+        "filename": tf.string,
+        "labels": tf.int32,
+        "num_events": tf.int32,
+        "index": tf.int32,
+        "frag_intervals": tf.float32,
+        "freq_intervals": tf.float32,
+        "time_intervals": tf.float32,
+        "spec": tf.uint16,
+    }
 
-    ds = ds.flat_map(f)
+    fn = utils.tf_py_func(
+        data_fragmentation.dict_slice_fragments, input_keys, output_types
+    )
 
-    num_samples = dsfn.get_labels(settings)["num_events"].sum()
-    ds = ds.apply(tf.data.experimental.assert_cardinality(num_samples))
+    # TODO: see if performance improves by replacing these 2 lines with a single flat_map
+    ds = ds.map(fn)
+    ds = ds.unbatch()
+
+    ds = ds.apply(tf.data.experimental.assert_cardinality(dsfn.num_events()))
 
     return ds

@@ -54,6 +54,37 @@ def test_tf_jax(array):
     assert jnp.all(y_jax == x_jax)
     assert jnp.all(utils.tf2jax(y_tf) == x_jax)
 
+    y_jax1, y_jax2 = utils.tf2jax(x_tf, x_tf)
+    y_tf1, y_tf2 = utils.jax2tf(x_jax, x_jax)
+
+    assert jnp.all(y_jax1 == x_jax)
+    assert jnp.all(y_jax2 == x_jax)
+    assert jnp.all(utils.tf2jax(y_tf1) == x_jax)
+    assert jnp.all(utils.tf2jax(y_tf2) == x_jax)
+
+
+def test_tf_jax_fn():
+    jax_fn = lambda x, y, z: jnp.mean(x + y + z)
+    tf_fn = lambda x, y, z: tf.reduce_mean(x + y + z)
+
+    x = [1, 2, 3]
+    y = [2, 3, 4]
+    z = [3, 4, 5]
+
+    jax_x = jnp.array(x)
+    jax_y = jnp.array(y)
+    jax_z = jnp.array(z)
+
+    tf_x = tf.constant(x)
+    tf_y = tf.constant(y)
+    tf_z = tf.constant(z)
+
+    assert jax_fn(jax_x, jax_y, z=jax_z) == 9
+    assert tf_fn(tf_x, tf_y, z=tf_z) == 9
+
+    assert utils.jax2tf_fn(jax_fn)(tf_x, tf_y, z=tf_z) == 9
+    assert utils.tf2jax_fn(tf_fn)(jax_x, jax_y, z=jax_z) == 9
+
 
 @pytest.mark.parametrize(
     "tensor_length, time, expected",
@@ -68,7 +99,7 @@ def test_tf_jax(array):
     ],
 )
 def test_time2pos(tensor_length, time, expected):
-    result = utils.time2pos(tensor_length, time)
+    result = utils.time2pos(time, tensor_length)
     assert result == expected
 
 
@@ -93,3 +124,62 @@ def test_hash_dict(d):
     d_hashed = utils.hash_dict(d)
     assert_dicts_equal(d, d_hashed)
     assert hash(d_hashed) is not None
+
+
+def test_flatten_unflatten_fn():
+
+    flat_fn = lambda a, b: [a, a + b, b]
+    unflat_fn = lambda args: {"c": args["a"] + args["b"], **args}
+
+    input_keys = ["a", "b"]
+    output_keys = ["a", "c", "b"]
+
+    dict_inputs = {"a": 1, "b": 2}
+    dict_outputs = {"a": 1, "b": 2, "c": 3}
+    list_inputs = [1, 2]
+    list_outputs = [1, 3, 2]
+
+    # Test that flattening and unflattening work
+    f_flattened = utils.flatten_fn(unflat_fn, input_keys, output_keys)
+    assert f_flattened(*list_inputs) == list_outputs
+
+    f_unflattened = utils.unflatten_fn(flat_fn, input_keys, output_keys)
+    assert f_unflattened(dict_inputs) == dict_outputs
+
+    # Test that they are inverses of each other
+    f_flattened_unflattened = utils.flatten_fn(f_unflattened, input_keys, output_keys)
+    assert f_flattened_unflattened(*list_inputs) == list_outputs
+
+    f_unflattened_flattened = utils.unflatten_fn(f_flattened, input_keys, output_keys)
+    assert f_unflattened_flattened(dict_inputs) == dict_outputs
+
+
+def test_tf_py_func_flat():
+
+    flat_fn = lambda a, b: [a, tf.cast(a + b, tf.float32), b]
+    output_types = [tf.int32, tf.float32, tf.int32]
+
+    f = utils.tf_py_func_flat(flat_fn, output_types)
+
+    x = [tf.constant(1), tf.constant(2)]
+    expected = [1, 3, 2]
+
+    for i, y in enumerate(f(*x)):
+        assert y.dtype == output_types[i]
+        assert y.numpy() == expected[i]
+
+
+def test_tf_py_func():
+
+    unflat_fn = lambda args: {"c": tf.cast(args["a"] + args["b"], tf.float32), **args}
+    input_keys = ["a", "b"]
+    output_types = {"a": tf.int32, "b": tf.int32, "c": tf.float32}
+
+    f = utils.tf_py_func(unflat_fn, input_keys, output_types)
+
+    x = {"a": tf.constant(1), "b": tf.constant(2)}
+    expected = {"a": 1, "b": 2, "c": 3}
+
+    for k, y in f(x).items():
+        assert y.dtype == output_types[k]
+        assert y.numpy() == expected[k]

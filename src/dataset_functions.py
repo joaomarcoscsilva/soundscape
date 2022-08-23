@@ -2,10 +2,12 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 import os
-from functools import cache
+from functools import cache, wraps
+
 
 import constants
 import utils
+from settings import settings
 
 
 def stack(x):
@@ -24,10 +26,9 @@ def get_pad_fn(value):
     """
 
     def f(x):
-        dims = len(x.shape)
         return np.pad(
             x,
-            [(0, constants.MAX_EVENTS - x.shape[0])] + [(0, 0)] * (dims - 1),
+            [(0, constants.MAX_EVENTS - x.shape[0])] + [(0, 0)] * (x.ndim - 1),
             "constant",
             constant_values=value,
         ).astype(np.float32)
@@ -35,7 +36,7 @@ def get_pad_fn(value):
     return f
 
 
-def read_df(settings):
+def read_df():
     """
     Read the dataframe containing the labelled events.
     """
@@ -56,7 +57,7 @@ def read_df(settings):
 
 
 @cache
-def get_labels(settings):
+def get_labels():
     """
     Return the contents of the `labels.csv` file in a format usable by tf.data.Dataset.from_tensor_slices.
 
@@ -71,7 +72,7 @@ def get_labels(settings):
         - labels: integer tensor of shape (N, E) containing the label of each event (out of the 12 selected classes)
     """
 
-    df = read_df(settings)
+    df = read_df()
 
     # Groups by each sound file
     df = df.groupby("file")
@@ -132,91 +133,87 @@ def get_labels(settings):
     }
 
 
-def get_extract_waveform_fn(settings):
+def num_events():
+    """
+    Gets the total number of events in the dataset.
+    """
+    return get_labels()["num_events"].sum()
+
+
+def extract_waveform(args):
     """
     Extract the waveform of a given audio file.
     """
 
-    def f(args):
-        wav = tf.io.read_file(
-            tf.strings.join(
-                [settings["data"]["data_dir"], args["filename"]], separator="/"
-            )
-        )
-        wav, sr = tf.audio.decode_wav(wav)
-        wav = wav[:, 0]
+    wav = tf.io.read_file(
+        tf.strings.join([settings["data"]["data_dir"], args["filename"]], separator="/")
+    )
+    wav, sr = tf.audio.decode_wav(wav)
+    wav = wav[:, 0]
 
-        return {"wav": wav, **args}
-
-    return f
+    return {"wav": wav, **args}
 
 
-def get_load_melspectrogram_fn(settings):
+def load_melspectrogram(args):
     """
     Load the mel spectrogram from a png image.
     """
 
-    def f(args):
-        filepath = args["filename"]
-        filepath = tf.strings.regex_replace(filepath, ".wav$", ".png")
-        filepath = tf.strings.regex_replace(filepath, "wavs/", "specs/")
-        filepath = tf.strings.join(
-            [settings["data"]["data_dir"], filepath], separator="/"
-        )
+    filepath = args["filename"]
+    filepath = tf.strings.regex_replace(filepath, ".wav$", ".png")
+    filepath = tf.strings.regex_replace(filepath, "wavs/", "specs/")
+    filepath = tf.strings.join([settings["data"]["data_dir"], filepath], separator="/")
 
-        spec = tf.image.decode_png(tf.io.read_file(filepath), dtype=tf.uint16)
-        spec = spec[:, :, 0]
+    spec = tf.image.decode_png(tf.io.read_file(filepath), dtype=tf.uint16)
+    spec = spec[:, :, 0]
 
-        return {"spec": spec, **args}
+    # TODO: generate the files again and then remove this line
+    spec = tf.transpose(spec)
 
-    return f
+    return {"spec": spec, **args}
 
 
-def get_extract_melspectrogram_fn(settings):
+def extract_melspectrogram(args):
     """
     Extract the melspectrogram of a given audio waveform.
     """
 
-    def extract_melspectrogram(args):
-        stft = tf.signal.stft(
-            args["wav"],
-            frame_length=settings["data"]["spectrogram"]["window_size"],
-            frame_step=settings["data"]["spectrogram"]["hop_size"],
-            fft_length=settings["data"]["spectrogram"]["n_fft"],
-            pad_end=False,
-            window_fn=getattr(tf.signal, settings["data"]["spectrogram"]["window_fn"]),
-        )
+    stft = tf.signal.stft(
+        args["wav"],
+        frame_length=settings["data"]["spectrogram"]["window_size"],
+        frame_step=settings["data"]["spectrogram"]["hop_size"],
+        fft_length=settings["data"]["spectrogram"]["n_fft"],
+        pad_end=False,
+        window_fn=getattr(tf.signal, settings["data"]["spectrogram"]["window_fn"]),
+    )
 
-        mag = tf.abs(stft)
+    mag = tf.abs(stft)
 
-        mel = tf.signal.linear_to_mel_weight_matrix(
-            num_mel_bins=settings["data"]["spectrogram"]["n_mels"],
-            num_spectrogram_bins=mag.shape[-1],
-            sample_rate=constants.SR,
-            lower_edge_hertz=10,
-            upper_edge_hertz=constants.SR // 2,
-            dtype=tf.float32,
-        )
+    mel = tf.signal.linear_to_mel_weight_matrix(
+        num_mel_bins=settings["data"]["spectrogram"]["n_mels"],
+        num_spectrogram_bins=mag.shape[-1],
+        sample_rate=constants.SR,
+        lower_edge_hertz=10,
+        upper_edge_hertz=constants.SR // 2,
+        dtype=tf.float32,
+    )
 
-        mel_spectrogram = tf.matmul(mag, mel)
+    mel_spectrogram = tf.matmul(mag, mel)
 
-        mel_spectrogram = tf.math.log(mel_spectrogram + 1)
-        mel_spectrogram = mel_spectrogram - tf.reduce_mean(
-            mel_spectrogram, axis=1, keepdims=True
-        )
-        mel_spectrogram = tf.clip_by_value(mel_spectrogram, 0, 6.5)
-        mel_spectrogram = mel_spectrogram / 6.5 * 256**2
-        mel_spectrogram = tf.cast(mel_spectrogram, tf.uint16)
-        mel_spectrogram = tf.transpose(mel_spectrogram)
+    mel_spectrogram = tf.math.log(mel_spectrogram + 1)
+    mel_spectrogram = mel_spectrogram - tf.reduce_mean(
+        mel_spectrogram, axis=1, keepdims=True
+    )
+    mel_spectrogram = tf.clip_by_value(mel_spectrogram, 0, 6.5)
+    mel_spectrogram = mel_spectrogram / 6.5 * 256**2
+    mel_spectrogram = tf.cast(mel_spectrogram, tf.uint16)
 
-        args.pop("wav")
+    args.pop("wav")
 
-        return {"spec": mel_spectrogram, **args}
-
-    return extract_melspectrogram
+    return {"spec": mel_spectrogram, **args}
 
 
-def get_fragment_borders_fn(settings):
+def fragment_borders(args):
     """
     To define the fragments used for training, we sample
     random intervals of length `settings["data"]["fragmentation"]["fragment_size"]`
@@ -235,31 +232,26 @@ def get_fragment_borders_fn(settings):
     such that the returned fragments contain every valid fragment
     according to the minimum overlap requirement. This can then be
     used at train time to randomly sample a fragment of the desired
-    size using random cropping.
-    """
+    size using random cropping."""
 
-    def fragment_borders(args):
+    border_sizes = settings["data"]["fragmentation"]["fragment_size"] * (
+        1 - settings["data"]["fragmentation"]["min_overlap"]
+    )
 
-        border_sizes = settings["data"]["fragmentation"]["fragment_size"] * (
-            1 - settings["data"]["fragmentation"]["min_overlap"]
-        )
+    is_valid_event = args["labels"] != -1
 
-        is_valid_event = args["labels"] != -1
+    begin_times = tf.where(
+        is_valid_event,
+        args["time_intervals"][:, 0] - border_sizes,
+        tf.zeros_like(args["time_intervals"][:, 0]),
+    )
 
-        begin_times = tf.where(
-            is_valid_event,
-            args["time_intervals"][:, 0] - border_sizes,
-            tf.zeros_like(args["time_intervals"][:, 0]),
-        )
+    end_times = tf.where(
+        is_valid_event,
+        args["time_intervals"][:, 1] + border_sizes,
+        tf.zeros_like(args["time_intervals"][:, 1]),
+    )
 
-        end_times = tf.where(
-            is_valid_event,
-            args["time_intervals"][:, 1] + border_sizes,
-            tf.zeros_like(args["time_intervals"][:, 1]),
-        )
+    frag_intervals = tf.stack([begin_times, end_times], axis=1)
 
-        frag_intervals = tf.stack([begin_times, end_times], axis=1)
-
-        return {"frag_intervals": frag_intervals, **args}
-
-    return fragment_borders
+    return {"frag_intervals": frag_intervals, **args}

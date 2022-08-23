@@ -1,9 +1,12 @@
 import jax
 from jax import numpy as jnp
 from functools import partial
-import tensorflow as tf
 
 import utils
+from settings import settings
+import constants
+
+frag_settings = settings["data"]["fragmentation"]
 
 
 def valid_begin_interval(fragment_size, interval):
@@ -17,120 +20,98 @@ def valid_begin_interval(fragment_size, interval):
     return min_val, max_val
 
 
-def get_uniform_begin_time_fn(settings):
+@jax.jit
+@jax.vmap
+def uniform_begin_time(rng, frag_interval):
     """
     Sample random begin times from the ranges in frag_interval.
     """
 
-    @jax.jit
-    @jax.vmap
-    def uniform_begin_time(rng, frag_interval):
+    min_begin_time, max_begin_time = valid_begin_interval(
+        frag_settings["fragment_size"], frag_interval
+    )
 
-        minimum_begin_time, maximum_begin_time = valid_begin_interval(
-            settings["data"]["fragmentation"]["fragment_size"], frag_interval
-        )
+    begin_time = jax.random.uniform(rng, minval=min_begin_time, maxval=max_begin_time)
 
-        begin_time = jax.random.uniform(
-            rng, minval=minimum_begin_time, maxval=maximum_begin_time
-        )
-
-        return begin_time
-
-    return uniform_begin_time
+    return begin_time
 
 
-def get_fixed_begin_time_fn(settings):
+@jax.jit
+@jax.vmap
+def fixed_begin_time(rng, frag_interval):
     """
     Return deterministic begin times, which are centered around the fragment intervals
     """
 
-    @jax.jit
-    @jax.vmap
-    def fixed_begin_time(rng, frag_interval):
+    mid_begin_time = (frag_interval[0] + frag_interval[1]) / 2
 
-        frag_interval_middle = (frag_interval[0] + frag_interval[1]) / 2
-        begin_time = (
-            frag_interval_middle
-            - settings["data"]["fragmentation"]["fragment_size"] / 2
-        )
+    begin_time = mid_begin_time - frag_settings["fragment_size"] / 2
 
-        return begin_time
-
-    return fixed_begin_time
+    return begin_time
 
 
 begin_time_fns = {
-    "uniform": get_uniform_begin_time_fn,
-    "fixed": get_fixed_begin_time_fn,
+    "uniform": uniform_begin_time,
+    "fixed": fixed_begin_time,
 }
 
 
-def get_pad_tensor_fn(settings):
+@partial(jax.vmap, in_axes=(None, 0), out_axes=(None, 0))
+def pad_tensor(tensor, begin_time):
     """
     Pad a tensor's boundaries such that its fragments can be taken
     from the beginning and end of the tensor without getting out of
     bounds.
     """
 
-    @partial(jax.vmap, in_axes=(None, 0), out_axes=(None, 0))
-    def pad_tensor(tensor, begin_time):
+    # Calculates the padding amount
+    pad_size = frag_settings["fragment_size"] * (1 - frag_settings["min_overlap"])
 
-        pad_size = utils.time2pos(
-            tensor.shape[0],
-            settings["data"]["fragmentation"]["fragment_size"]
-            * (1 - settings["data"]["fragmentation"]["min_overlap"]),
-            ceil=True,
-        )
+    # Converts the amount from seconds to samples (the tensor is assumed to represent a 60 seconds clip)
+    pad_size = utils.time2pos(pad_size, tensor.shape[0], ceil=True)
 
-        pad_mask = jnp.concatenate(
-            [
-                jnp.array([[pad_size, pad_size]], dtype=jnp.int32),
-                jnp.zeros((len(tensor.shape) - 1, 2), dtype=jnp.int32),
-            ],
-            axis=0,
-        )
+    # Creates the padding mask
+    pad_mask = [(pad_size, pad_size)] + [(0, 0)] * (tensor.ndim - 1)
 
-        tensor = jnp.pad(
-            tensor, pad_mask, settings["data"]["fragmentation"]["padding_mode"]
-        )
+    # Pads the tensor
+    tensor = jnp.pad(tensor, pad_mask, frag_settings["padding_mode"])
 
-        begin_time = begin_time + pad_size
+    # Updates the begin time variable, since now there is a few additional seconds of padding in the beginning
+    begin_time = begin_time + pad_size
 
-        return tensor, begin_time
-
-    return pad_tensor
+    return tensor, begin_time
 
 
-def get_slice_fn(settings):
+@partial(jax.vmap, in_axes=(None, 0, None))
+def slice(tensor, begin_time, valid_length=None):
     """
     Return a slice of the given tensor starting from begin_time with a length of settings["data"]["fragmentation"]["fragment_size"].
+
+    Args:
+        tensor: a tensor to be sliced
+        begin_time: the time at which the slice should start
+        valid_length: if the tensor is padded, the length of the valid part of the tensor (i.e. the length of the original tensor)
     """
 
-    @partial(jax.vmap, in_axes=(None, 0, None))
-    def slice(tensor, begin_time, valid_length):
+    if valid_length is None:
+        valid_length = tensor.shape[0]
 
-        begin_pos = utils.time2pos(valid_length, begin_time)
+    # Converts the arguments from seconds to samples (the tensor is assumed to represent a 60 seconds clip)
+    begin_pos = utils.time2pos(begin_time, valid_length)
+    fragment_size = utils.time2pos(frag_settings["fragment_size"], valid_length)
 
-        fragment_size = utils.time2pos(
-            valid_length, settings["data"]["fragmentation"]["fragment_size"]
-        )
+    #
+    start_indices = [begin_pos] + [0] * (tensor.ndim - 1)
+    slice_sizes = [fragment_size] + list(tensor.shape[1:])
 
-        one_mask = jnp.array([1] + [0] * (len(tensor.shape) - 1), dtype=jnp.int32)
-        shape_mask = jnp.array(tensor.shape) * (1 - one_mask)
-
-        return jax.lax.dynamic_slice(
-            tensor,
-            begin_pos * one_mask,
-            (fragment_size) * one_mask + shape_mask,
-        )
-
-    return slice
+    return jax.lax.dynamic_slice(tensor, start_indices, slice_sizes)
 
 
-def get_batch_slice_fn(settings):
+def slice_fragments(rng, tensor, frag_intervals):
     """
-    Using the functions above, create a function that slices a
-    tensor according to the fragments in frag_interval.
+    Return a list of fragments from the given tensor, sampled from the given intervals.
+
+    This function samples fragments from the given intervals, pads the tensor and then slices it into fragments.
 
     Args:
         rng: a jax random seed
@@ -141,106 +122,42 @@ def get_batch_slice_fn(settings):
         A tensor of shape (n_fragments, fragment_size) containing the fragments sliced from the tensor.
     """
 
-    begin_time_fn = begin_time_fns[settings["data"]["fragmentation"]["begin_time_fn"]](
-        settings
-    )
-    pad_tensor_fn = get_pad_tensor_fn(settings)
-    slice_fn = get_slice_fn(settings)
+    # Finds the sampling function used for the begin times
+    begin_time_fn = begin_time_fns[frag_settings["begin_time_fn"]]
 
-    def batch_slice(rng, tensor, frag_intervals):
-        rngs = jax.random.split(rng, frag_intervals.shape[0])
-        begin_times = begin_time_fn(rngs, frag_intervals)
-        padded_tensor, padded_begin_times = pad_tensor_fn(tensor, begin_times)
-        return slice_fn(padded_tensor, padded_begin_times, tensor.shape[0])
+    # Samples the begin times from the given intervals
+    rngs = jax.random.split(rng, frag_intervals.shape[0])
+    begin_times = begin_time_fn(rngs, frag_intervals)
 
-    return batch_slice
+    # Pads the tensor
+    padded_tensor, padded_begin_times = pad_tensor(tensor, begin_times)
+
+    # Slices the padded tensor into fragments
+    return slice(padded_tensor, padded_begin_times, tensor.shape[0])
 
 
-def get_jax_fragmentation_fn(settings):
+@utils.jax2tf_fn
+def dict_slice_fragments(args):
     """
-    Create a function that processes a batch of data
-    from a tf.data.Dataset into a batch of data suitable
-    for training with jax.
-
-    The returned values for this function are very
-    awkward, since they need to be used inside a
-    tf.py_function call.
+    Applies the slice_fragments function to a dict of arguments.
+    The dict must contain the keys "rng", "frag_intervals" and at
+    least one of "spec" or "wav".
     """
 
-    slice_fn = get_batch_slice_fn(settings)
+    # Crops the slices of the spectrogram and waves
+    for key in {"spec", "wav"}.intersection(set(args.keys())):
+        args[key] = slice_fragments(args["rng"], args[key], args["frag_intervals"])
 
-    def jax_process_data(
-        filename,
-        frag_intervals,
-        freq_intervals,
-        labels,
-        num_events,
-        time_intervals,
-        rng,
-        spec,
-    ):
+    # Removes padded slices from the dict
 
-        rng_jax = utils.tf2jax(rng)
-        spec_jax = utils.tf2jax(spec)
-        frag_intervals_jax = utils.tf2jax(frag_intervals)
+    num_events = args["num_events"]
 
-        slices = slice_fn(
-            rng_jax,
-            spec_jax.T,
-            frag_intervals_jax,
-        )
-        slices = utils.jax2tf(slices)
+    for key in args:
+        if type(args[key]) == str:
+            args[key] = [args[key]] * num_events
+        elif args[key].ndim >= 1 and args[key].shape[0] == constants.MAX_EVENTS:
+            args[key] = args[key][:num_events]
+        else:
+            args[key] = jnp.repeat(args[key][None, ...], num_events, axis=0)
 
-        filename = tf.repeat(filename, num_events)
-        frag_intervals = frag_intervals[0:num_events]
-        freq_intervals = freq_intervals[0:num_events]
-        labels = labels[0:num_events]
-        time_intervals = time_intervals[0:num_events]
-        slices = slices[0:num_events]
-
-        num_events = tf.repeat(num_events, num_events)
-
-        return [
-            filename,
-            frag_intervals,
-            freq_intervals,
-            labels,
-            num_events,
-            slices,
-            time_intervals,
-        ]
-
-    flatten_inputs_fn = lambda args: (
-        args["filename"],
-        args["frag_intervals"],
-        args["freq_intervals"],
-        args["labels"],
-        args["num_events"],
-        args["time_intervals"],
-        args["rng"],
-        args["spec"],
-    )
-
-    output_keys = [
-        "filename",
-        "frag_intervals",
-        "freq_intervals",
-        "labels",
-        "num_events",
-        "slice",
-        "time_intervals",
-    ]
-
-    unflatten_outputs_fn = lambda outputs: dict(zip(output_keys, outputs))
-
-    output_types = [
-        tf.string,
-        tf.float32,
-        tf.float32,
-        tf.int32,
-        tf.int32,
-        tf.uint16,
-        tf.float32,
-    ]
-
-    return jax_process_data, flatten_inputs_fn, unflatten_outputs_fn, output_types
+    return args

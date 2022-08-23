@@ -39,7 +39,7 @@ def test_pad(value, x, y):
 
 
 def test_read_df():
-    df = dsfn.read_df(settings)
+    df = dsfn.read_df()
     assert df["exists"].all()
     assert df["begin_time"].dtype == np.float32
     assert df["end_time"].dtype == np.float32
@@ -55,35 +55,29 @@ test_indexes = [0, 1, 1000, 4260 - 1]
 
 @pytest.fixture
 def labels():
-    return dsfn.get_labels(settings)
+    return dsfn.get_labels()
 
 @pytest.fixture
 def wavs(labels):
-    fn = dsfn.get_extract_waveform_fn(settings)
-    
     def index_labels(i):
         return {k: v[i] for k, v in labels.items()}
 
-    return list(map(fn, map(index_labels, test_indexes)))
+    return list(map(dsfn.extract_waveform, map(index_labels, test_indexes)))
 
 @pytest.fixture
 def specs(wavs):
-    fn = dsfn.get_extract_melspectrogram_fn(settings)
-    return list(map(fn, wavs))
+    return list(map(dsfn.extract_melspectrogram, wavs))
 
 @pytest.fixture 
 def loaded_specs(labels):
-    fn = dsfn.get_load_melspectrogram_fn(settings)
-
     def index_labels(i):
         return {k: v[i] for k, v in labels.items()}
 
-    return list(map(fn, map(index_labels, test_indexes)))
+    return list(map(dsfn.load_melspectrogram, map(index_labels, test_indexes)))
 
 @pytest.fixture
 def frags(specs):
-    fn = dsfn.get_fragment_borders_fn(settings)
-    return list(map(fn, specs))
+    return list(map(dsfn.fragment_borders, specs))
 
 
 def test_get_labels(labels):
@@ -103,6 +97,8 @@ def test_get_labels(labels):
     assert labels["labels"].min() == -1  # 12 selected classes + 1 for other classes
     assert labels["labels"].max() == 12
 
+def test_num_events():
+    assert dsfn.num_events() == 16636
 
 def test_extract_waveform(wavs):
 
@@ -116,7 +112,7 @@ def test_extract_waveform(wavs):
 def test_extract_melspectrogram(specs):
 
     for spec in specs:
-        assert spec["spec"].shape == (settings["data"]["spectrogram"]["n_mels"], 10328)
+        assert spec["spec"].shape == (10328, settings["data"]["spectrogram"]["n_mels"])
         assert spec["spec"].dtype == np.uint16
         assert tf.math.reduce_min(spec["spec"]) >= 0
 
