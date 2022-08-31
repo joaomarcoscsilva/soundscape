@@ -1,2 +1,11 @@
+equinox==0.7.0
+eqxvision==0.1.10
+imageio==2.16.1
+ipython==8.4.0
+jax==0.3.4
+numpy==1.21.2
+optax==0.1.2
 pandas==1.4.1
-tqdm==4.63.0
+PyYAML==6.0
+tensorflow==2.9.1
+tqdm==4.64.0
