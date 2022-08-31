@@ -16,7 +16,7 @@ def weighted_loss(loss_fn, class_weights=None):
 
     @wraps(loss_fn)
     def weighted_loss_fn(logits, labels):
-        weights = class_weights[logits.argmax(axis=-1)]
+        weights = class_weights[labels.argmax(axis=-1)]
         return weights * loss_fn(logits=logits, labels=labels)
 
     return weighted_loss_fn

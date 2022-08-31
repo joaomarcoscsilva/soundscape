@@ -36,12 +36,17 @@ def test_parallel_map(fn, x):
         [1],
         {"a": [1, 2], "b": [3, 4], "c": [[5], [6]], "d": "string"},
         "string",
+        ["string1", "string2"],
     ],
 )
 def test_tf_jax(array):
     if type(array) == list:
-        x_tf = tf.constant(array)
-        x_jax = jnp.array(array)
+        if type(array[0]) != str:
+            x_tf = tf.constant(array)
+            x_jax = jnp.array(array)
+        else:
+            x_jax = array
+            x_tf = tf.constant(array)
     else:
         x_tf = jax.tree_util.tree_map(tf.constant, array)
         x_jax = jax.tree_util.tree_map(
