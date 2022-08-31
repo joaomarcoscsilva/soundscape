@@ -36,7 +36,12 @@ def tf2jax(*args):
             x = tf.experimental.dlpack.to_dlpack(x)
             x = jax.dlpack.from_dlpack(x)
         else:
-            x = x.numpy().decode()
+            x = x.numpy()
+            if type(x) == bytes:
+                x = x.decode()
+            else:
+                x = list(map(lambda x: x.decode(), x))
+
         return x
 
     if len(args) > 1:

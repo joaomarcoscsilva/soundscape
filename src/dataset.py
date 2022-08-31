@@ -7,37 +7,41 @@ import data_fragmentation
 import utils
 
 
-def labels_dataset():
+def labels_dataset(seed=None):
     """
     Return a tf.data.Dataset containing the labelled audio files.
     """
 
     labels = dsfn.get_labels()
     ds = tf.data.Dataset.from_tensor_slices(labels)
+
+    if seed is not None:
+        ds = ds.shuffle(-1, seed=seed)
+
     return ds
 
 
-def waveform_dataset():
+def waveform_dataset(seed=None):
     """
     Return a tf.data.Dataset containing the labelled audio files and their waveforms.
     """
 
-    ds = labels_dataset()
+    ds = labels_dataset(seed)
     ds = ds.map(dsfn.extract_waveform)
     ds = ds.map(dsfn.fragment_borders)
     return ds
 
 
-def melspectrogram_dataset(from_disk=False):
+def melspectrogram_dataset(from_disk=False, seed=None):
     """
     Return a tf.data.Dataset containing the labelled audio files and their spectrograms.
     """
 
     if not from_disk:
-        ds = waveform_dataset()
+        ds = waveform_dataset(seed)
         ds = ds.map(dsfn.extract_melspectrogram)
     else:
-        ds = labels_dataset()
+        ds = labels_dataset(seed)
         ds = ds.map(dsfn.fragment_borders)
         ds = ds.map(dsfn.load_melspectrogram)
 
@@ -102,3 +106,13 @@ def fragment_dataset(ds, rng):
     ds = ds.apply(tf.data.experimental.assert_cardinality(dsfn.num_events()))
 
     return ds
+
+
+def jax_dataset(ds):
+    """
+    Convert a tf.data.Dataset to an iterator that returns jax arrays.
+    Uses utils.tf2jax to do the conversions
+    """
+
+    for elem in ds:
+        yield utils.tf2jax(elem)

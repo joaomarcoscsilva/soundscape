@@ -16,4 +16,7 @@ data:
         begin_time_fn: "uniform"
         min_overlap: 0.5
 
+
+train:
+    num_epochs: 10
     
