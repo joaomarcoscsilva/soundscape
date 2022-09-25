@@ -1,2 +1,7 @@
-/labels.csv
 /txts
+/wavs
+/specs
+/labels.csv
+/test_labels.csv
+/train_labels.csv
+/val_labels.csv

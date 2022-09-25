@@ -1,0 +1,18 @@
+stages:
+  train:
+    cmd: python src/run_supervised.py
+    deps:
+    - data/train_labels.csv
+    - data/val_labels.csv
+    - src
+    params:
+    - settings.yaml:
+        - seed
+    outs:
+    - models
+    metrics:
+    - metrics.json:
+        cache: false
+    plots:
+    - plots:
+        cache: false

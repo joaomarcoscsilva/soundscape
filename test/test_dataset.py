@@ -1,13 +1,15 @@
 from json import load
 import tensorflow as tf
+import numpy as np
 import jax
+from jax import numpy as jnp
 import os
-
-import dataset
-from settings import settings
-import constants
-import utils
 import pytest
+
+from soundscape.data import dataset
+from soundscape.lib import constants, utils
+from soundscape.lib.settings import settings
+
 
 # Number of samples to test in each dataset
 n = 4
@@ -35,12 +37,12 @@ def waveform_ds():
 
 @pytest.fixture
 def spec_ds():
-    return dataset.melspectrogram_dataset(from_disk=False)
+    return dataset.spectrogram_dataset(from_disk=False)
 
 
 @pytest.fixture
 def loaded_spec_ds():
-    return dataset.melspectrogram_dataset(from_disk=True)
+    return dataset.spectrogram_dataset(from_disk=True)
 
 
 def test_label_dataset(labels_ds, waveform_ds, spec_ds, loaded_spec_ds):
@@ -91,9 +93,8 @@ def test_label_dataset(labels_ds, waveform_ds, spec_ds, loaded_spec_ds):
         filename = os.path.join(settings["data"]["data_dir"], filename)
         loaded_file = tf.image.decode_png(tf.io.read_file(filename), dtype=tf.uint16)
 
-        # TODO: change this once the specs are generated again
-        assert tf.reduce_all(s["spec"] == loaded_file[:, :, 0]) or tf.reduce_all(
-            tf.transpose(s["spec"]) == loaded_file[:, :, 0]
+        assert tf.reduce_all(
+            tf.cast(s["spec"], tf.int32) - tf.cast(loaded_file[:, :, 0], tf.int32) <= 1
         )
 
 
@@ -143,10 +144,22 @@ def test_fragment_dataset(rng, loaded_spec_ds):
             x = next(fragment_ds_it)
 
             for key in ["filename", "num_events"]:
-                assert x[key] == entry[key]
+                assert x[key] == entry[key].numpy()
 
             for key in ["frag_intervals", "freq_intervals", "time_intervals"]:
                 assert tf.reduce_all(x[key] == entry[key][i])
 
             assert x["spec"].ndim == 2
             assert x["spec"].shape[-1] == settings["data"]["spectrogram"]["n_mels"]
+
+
+def test_jax_dataset(loaded_spec_ds):
+    ds = loaded_spec_ds.take(n)
+    jaxds = dataset.jax_dataset(ds)
+
+    for x_tf, x_jax in zip(ds, jaxds):
+        for key in x_tf:
+            if x_tf[key].dtype == tf.string:
+                assert x_tf[key].numpy().decode() == x_jax[key]
+            else:
+                assert jnp.all(x_tf[key].numpy() == x_jax[key])
