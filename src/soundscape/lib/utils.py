@@ -6,6 +6,15 @@ import jax.dlpack
 from jax import numpy as jnp
 from functools import wraps
 from typing import Callable
+import copy
+
+
+def dict_map(fn, d):
+    """
+    Map a function over a dictionary.
+    """
+
+    return {k: fn(v) for k, v in d.items()}
 
 
 def parallel_map(fn, args, use_tqdm=True):
@@ -26,7 +35,7 @@ def parallel_map(fn, args, use_tqdm=True):
             return list(p.imap(fn, args))
 
 
-def tf2jax(*args):
+def tf2jax(*args, to_gpu=False):
     """
     Convert a tensor to a jax.numpy array (or pytree).
     """
@@ -35,6 +44,8 @@ def tf2jax(*args):
         if x.dtype != tf.string:
             x = tf.experimental.dlpack.to_dlpack(x)
             x = jax.dlpack.from_dlpack(x)
+            if to_gpu:
+                x = jax.device_put(x, jax.devices()[0])
         else:
             x = x.numpy()
             if type(x) == bytes:
@@ -45,9 +56,9 @@ def tf2jax(*args):
         return x
 
     if len(args) > 1:
-        return [jax.tree_map(f, x) for x in args]
+        return [jax.tree_util.tree_map(f, x) for x in args]
 
-    return jax.tree_map(f, args[0])
+    return jax.tree_util.tree_map(f, args[0])
 
 
 def jax2tf(*args):
@@ -65,9 +76,9 @@ def jax2tf(*args):
         return x
 
     if len(args) > 1:
-        return [jax.tree_map(f, x) for x in args]
+        return [jax.tree_util.tree_map(f, x) for x in args]
 
-    return jax.tree_map(f, args[0])
+    return jax.tree_util.tree_map(f, args[0])
 
 
 def jax2tf_fn(fn):
@@ -118,6 +129,9 @@ class hash_dict(dict):
 
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
+
+    def copy(self):
+        return copy.deepcopy(self)
 
 
 def flatten_fn(fn: Callable[[dict], dict], input_keys: list, output_keys: list):
@@ -180,3 +194,32 @@ def tf_py_func(fn: Callable[[dict], dict], input_keys: list, output_types: dict)
     flat_fn = flatten_fn(fn, input_keys, list(output_types.keys()))
     tf_func = tf_py_func_flat(flat_fn, list(output_types.values()))
     return unflatten_fn(tf_func, input_keys, list(output_types.keys()))
+
+
+def wrap_around(fn, outer_fn):
+    """
+    Create a function that calls fn and then passes the result to outer_fn.
+    All inputs passed to fn are also passed to outer_fn.
+    """
+
+    def _fn(*args, **kwargs):
+        return outer_fn(fn(*args, **kwargs), *args, **kwargs)
+
+    return _fn
+
+
+def remove_index(tup, index):
+    """
+    Remove an index from a tuple.
+    """
+    return tuple(v for i, v in enumerate(tup) if i != index), tup[index]
+
+
+def insert_index(tup, index, val):
+    if index < 0:
+        index += len(tup) + 1
+    return tup[:index] + (val,) + tup[index:]
+
+
+def remove_key(dic, key):
+    return {k: v for k, v in dic.items() if k != key}, dic[key]

@@ -4,11 +4,9 @@ from jax import numpy as jnp
 import tensorflow as tf
 import numpy as np
 
-import data_fragmentation
-from dataset import fragment_dataset
-import utils
-import constants
-from settings import settings
+from soundscape.data import data_fragmentation
+from soundscape.lib import constants
+from soundscape.lib.settings import settings
 
 
 @pytest.mark.parametrize(
@@ -85,38 +83,35 @@ def test_fixed_begin_time(rngs, frag_intervals, expected):
 
 
 @pytest.mark.parametrize(
-    "tensor,begin_times,expected",
+    "tensor,begin_times,expected_tensor,expected_pos",
     [
         (
             jnp.ones(60),
             jnp.array([-2.0, 1.0, 0.0, 55.0, 57.0]),
             jnp.ones(60 + 6),
+            jnp.array([1, 4, 3, 58, 60]),
         ),
         (
             jnp.ones(30) * 0.5,
             jnp.array([-2.0, 1.0, 0.0, 55.0, 57.0]),
-            jnp.concatenate([jnp.ones(30 + 4) * 0.5]),
+            jnp.ones(30 + 4) * 0.5,
+            jnp.array([1, 2, 2, 29, 30]),
         ),
     ],
 )
-def test_pad_tensor(tensor, begin_times, expected):
-    padded_tensor, padded_begin_times = data_fragmentation.pad_tensor(
-        tensor, begin_times
-    )
-
-    pad_size = (padded_tensor.shape[0] - tensor.shape[0]) // 2
-
-    assert (padded_tensor == expected).all()
-    assert (padded_begin_times == begin_times + pad_size).all()
+def test_pad_tensor(tensor, begin_times, expected_tensor, expected_pos):
+    padded_tensor, padded_pos = data_fragmentation.pad_tensor(tensor, begin_times)
+    assert (padded_tensor == expected_tensor).all()
+    assert (padded_pos == expected_pos).all()
 
 
 @pytest.mark.parametrize(
-    "tensor,begin_times,valid_length,expected",
+    "tensor,begin_pos,fragment_size,expected",
     [
         (
             jnp.arange(60),
-            jnp.array([0.0, 12.0, 54.0, 55.0]),
-            None,
+            jnp.array([0, 12, 54, 55]),
+            5,
             jnp.array(
                 [
                     [0, 1, 2, 3, 4],
@@ -125,26 +120,12 @@ def test_pad_tensor(tensor, begin_times, expected):
                     [55, 56, 57, 58, 59],
                 ]
             ),
-        ),
-        (
-            jnp.arange(64),
-            jnp.array([0.0, 12.0, 54.0, 59.0]),
-            60,
-            jnp.array(
-                [
-                    [0, 1, 2, 3, 4],
-                    [12, 13, 14, 15, 16],
-                    [54, 55, 56, 57, 58],
-                    [59, 60, 61, 62, 63],
-                ]
-            ),
-        ),
+        )
     ],
 )
-def test_slice(tensor, begin_times, valid_length, expected):
-    assert (
-        data_fragmentation.slice(tensor, begin_times, valid_length) == expected
-    ).all()
+def test_slice(tensor, begin_pos, fragment_size, expected):
+    slices = data_fragmentation.slice(tensor, begin_pos, fragment_size)
+    assert (slices == expected).all()
 
 
 @pytest.mark.parametrize(
@@ -165,7 +146,13 @@ def test_slice(tensor, begin_times, valid_length, expected):
     ],
 )
 def test_slice_fragments(rng, tensor, frag_intervals, expected):
-    slices = data_fragmentation.slice_fragments(rng, tensor, frag_intervals)
+    local_settings = {**settings}
+    local_settings["data"]["fragmentation"]["begin_time_fn"] = "fixed"
+
+    slices = data_fragmentation.slice_fragments.call(
+        local_settings, rng, tensor, frag_intervals
+    )
+
     assert (slices == expected).all()
 
 

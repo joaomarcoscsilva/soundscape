@@ -1,24 +1,20 @@
 import pytest
 import optax
 import jax
-import equinox as eqx
 from jax import numpy as jnp
-
-import loss_transforms
-
-
-class model(eqx.Module):
-    w: jnp.array
-
-    def __init__(self, dim):
-        self.w = jnp.eye(dim)
-
-    def __call__(self, x, key):
-        return self.w @ x
+from oryx.core.interpreters.harvest import reap, call_and_reap
+from soundscape.lib import loss_transforms, sow_transforms
+from functools import partial
 
 
-def l(logits, labels):
+@partial(sow_transforms.sow_fn, name="loss", tag="tag")
+def loss_fn(logits, labels):
     return logits
+
+
+@partial(sow_transforms.tuple_to_sow, names=["logits", "state"], tag="tag")
+def logit_fn(params, x):
+    return (params["w"] - x) ** 2, {}
 
 
 @pytest.mark.parametrize(
@@ -30,61 +26,60 @@ def l(logits, labels):
             jnp.array([1, 2, 3]),
             jnp.array([2, 6, 4]),
         ),
+        (
+            jnp.array([2, 2, 2]),
+            jnp.array([[1, 0, 0], [0, 0, 1], [0, 1, 0]]),
+            None,
+            jnp.array([2, 2, 2]),
+        ),
     ],
 )
-def test_weighted_loss(logits, labels, class_weights, expected):
-    weighted_loss = loss_transforms.weighted_loss(l, class_weights)
+def test_weighted(logits, labels, class_weights, expected):
+    weighted_loss = loss_transforms.weighted(loss_fn, class_weights)
     assert jnp.allclose(weighted_loss(logits, labels), expected)
 
 
 @pytest.mark.parametrize(
-    "model,inputs,expected_loss,expected_logits,expected_grad",
+    "params,inputs,expected_loss,expected_logits,expected_grad",
     [
         (
-            model(dim=3),
-            jnp.array([[1, 2, 3]]),
-            jnp.array(2),
-            jnp.array([[1, 2, 3]]),
-            jnp.array([[1, 2, 3], [1, 2, 3], [1, 2, 3]]) * 1 / 3,
+            {"w": jnp.array([4.0])},
+            jnp.array([1.0]),
+            jnp.array([9.0]),
+            jnp.array([9.0]),
+            jnp.array([6.0]),
         )
     ],
 )
 def test_applied_loss_and_update(
-    model, inputs, expected_loss, expected_logits, expected_grad
+    params, inputs, expected_loss, expected_logits, expected_grad
 ):
-    key = jax.random.PRNGKey(0)[None, :]
-    labels = 0
 
     # Test applied_loss
-    applied_loss = loss_transforms.applied_loss(l)
-    (loss, logits) = applied_loss(model, inputs, labels, key)
+    applied_loss = loss_transforms.applied_loss(loss_fn, logit_fn)
 
+    loss = applied_loss(params, inputs, labels=None)
     assert jnp.allclose(loss, expected_loss)
-    assert jnp.allclose(logits, expected_logits)
 
-    # Test the gradient of applied_loss
-    grad_loss = eqx.filter_value_and_grad(applied_loss, has_aux=True)
-    (loss, logits), grad = grad_loss(model, inputs, labels, key)
-
-    assert jnp.allclose(loss, expected_loss)
-    assert jnp.allclose(logits, expected_logits)
-    assert jnp.allclose(grad.w, expected_grad)
+    # Test planted logits
+    aux = reap(applied_loss, tag="tag")(params, inputs, labels=None)
+    assert jnp.allclose(aux["logits"], expected_logits)
 
     # Test update_from_loss
-    update_fn = loss_transforms.update_from_loss(grad_loss)
+    optim = optax.sgd(0.1)
+    optim_state = optim.init(params)
 
-    optim = optax.sgd(1)
-    optim_state = optim.init(model)
+    update_fn = loss_transforms.update(applied_loss, optim)
 
-    new_model, optim_state, loss, logits = update_fn(
-        model, inputs, labels, optim, optim_state, key
+    (optim_state, new_params), aux = call_and_reap(update_fn, tag="tag")(
+        optim_state, params, inputs, labels=None
     )
 
-    assert jnp.allclose(loss, expected_loss)
-    assert jnp.allclose(logits, expected_logits)
-    assert jnp.allclose(new_model.w, model.w - expected_grad)
+    assert jnp.allclose(aux["loss"], expected_loss)
+    assert jnp.allclose(aux["logits"], expected_logits)
+    assert jnp.allclose(new_params["w"], params["w"] - 0.1 * expected_grad)
 
     # Check that the loss decreased after the update
-    (new_loss, new_logits) = applied_loss(new_model, inputs, labels, key)
+    new_loss = applied_loss(new_params, inputs, labels=None)
 
     assert new_loss < expected_loss

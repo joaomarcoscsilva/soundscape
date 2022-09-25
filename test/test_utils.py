@@ -1,10 +1,9 @@
-import utils
 import tensorflow as tf
 from jax import numpy as jnp
 import jax
-
 import pytest
 
+from soundscape.lib import utils
 
 # Functions used in test_parallel_map since it's not possible to use lambdas.
 def inc_fn(x):
@@ -13,6 +12,13 @@ def inc_fn(x):
 
 def sqr_fn(x):
     return x * x
+
+
+def test_dict_map():
+    fn = lambda x: x + 1
+    d = {"a": 1, "b": 2, "c": 3}
+    expected = {"a": 2, "b": 3, "c": 4}
+    assert utils.dict_map(fn, d) == expected
 
 
 @pytest.mark.parametrize(
@@ -188,3 +194,34 @@ def test_tf_py_func():
     for k, y in f(x).items():
         assert y.dtype == output_types[k]
         assert y.numpy() == expected[k]
+
+
+def test_wrap_around():
+
+    f = lambda x: x + 1
+    g = lambda y, x: x * y
+
+    h = utils.wrap_around(f, g)
+
+    assert h(1) == 2
+    assert h(2) == 6
+    assert h(3) == 12
+
+
+def test_remove_index():
+    a = (1, 2, 3, 4, 5)
+    assert utils.remove_index(a, 0) == ((2, 3, 4, 5), 1)
+    assert utils.remove_index(a, 1) == ((1, 3, 4, 5), 2)
+
+
+def test_insert_index():
+    a = (1, 2, 3, 4, 5)
+    assert utils.insert_index(a, 0, 0) == (0, 1, 2, 3, 4, 5)
+    assert utils.insert_index(a, 1, 0) == (1, 0, 2, 3, 4, 5)
+    assert utils.insert_index(a, -1, 0) == (1, 2, 3, 4, 5, 0)
+
+
+def test_remove_key():
+    a = {"a": 1, "b": 2, "c": 3}
+    assert utils.remove_key(a, "a") == ({"b": 2, "c": 3}, 1)
+    assert utils.remove_key(a, "b") == ({"a": 1, "c": 3}, 2)

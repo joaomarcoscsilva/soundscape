@@ -4,7 +4,7 @@ import sys, os
 from tqdm import tqdm
 from glob import glob
 
-import constants
+from ..lib import constants
 
 
 def class_is_frog(species):

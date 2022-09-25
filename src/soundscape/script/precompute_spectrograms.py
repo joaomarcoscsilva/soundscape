@@ -3,19 +3,20 @@ import tensorflow as tf
 import imageio
 import os
 
-import utils
-import dataset
+from ..lib.settings import settings
+from ..data import dataset
 
-from settings import settings
 
 if __name__ == "__main__":
 
-    ds = dataset.melspectrogram_dataset(settings)
+    ds = dataset.spectrogram_dataset(from_disk=False)
 
     for d in tqdm(ds):
 
         # Finds the name of the image to be saved
-        filename = d["filename"].numpy().decode().replace(".wav", ".png")
+        filename = (
+            d["filename"].numpy().decode().replace(".wav", ".png").replace("wavs/", "")
+        )
         filename = os.path.join(settings["data"]["data_dir"], "specs", filename)
 
         # Creates the necessary directories if they don't exist
