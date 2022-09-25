@@ -3,40 +3,33 @@ from tqdm.auto import tqdm
 from functools import partial
 import jax
 from oryx.core.interpreters.harvest import call_and_reap
+from dvclive import Live
 
 from ..data import dataset, dataset_functions as dsfn
-from . import utils
+from . import utils, log
 
 
-def at_least_one_dim(x):
-    return x if len(x.shape) else x[None]
-
-
-def accumulate_state(state, new_aux):
+def append_fn(state, new_aux):
     """
-    Accumulate the values of new_aux into state.
+    Append the new values in new_aux to state
     """
 
     if state is None:
-        return jax.tree_util.tree_map(at_least_one_dim, new_aux)
+        return {k: [new_aux[k]] for k in new_aux.keys()}
 
-    return {
-        k: jnp.concatenate((state[k], at_least_one_dim(new_aux[k])))
-        for k in state.keys()
-        if k != "state"
-    }
+    return {k: state[k] + [new_aux[k]] for k in new_aux.keys()}
 
 
-def train_fn(update_fn):
+def train_fn(settings, update_fn):
     """
     Create a training function to be used with scan_ds.
     """
 
     @partial(jax.jit, donate_argnums=(1, 2, 4))
     def next_fn(batch, rng, optim_state, params, fixed_params, state):
-        batch = dsfn.prepare_batch(batch)
-
         rng_batch, rng = jax.random.split(rng)
+
+        batch = dsfn.prepare_image(settings)(batch)
 
         (optim_state, params, state), aux = update_fn(
             optim_state,
@@ -53,16 +46,16 @@ def train_fn(update_fn):
     return next_fn
 
 
-def eval_fn(loss_fn):
+def eval_fn(settings, loss_fn):
     """
     Create an inference function to be used with scan_ds.
     """
 
     @jax.jit
     def next_fn(batch, rng, params, fixed_params, state):
-        batch = dsfn.prepare_batch(batch)
-
         rng_batch, rng = jax.random.split(rng)
+
+        batch = dsfn.prepare_image(settings)(batch)
 
         _, aux = loss_fn(
             params,
@@ -79,21 +72,15 @@ def eval_fn(loss_fn):
     return next_fn
 
 
-def desc_fn(prefix, keys=None):
-    """
-    Create a description function for the training loop.
-    """
-
-    def desc(logs, aux):
-        s = prefix
-        for k in sorted(keys) if keys is not None else sorted(aux.keys()):
-            s += f" {k}: {logs[k].mean():.3f} "
-        return s
-
-    return desc
-
-
-def scan_ds(ds, next_fn, log_fn, desc_fn=None, *args):
+def scan_ds(
+    ds,
+    *args,
+    next_fn,
+    batch_log_fn=None,
+    desc_fn=None,
+    epoch_log_fn=None,
+    log_state=None,
+):
     """
     Iterate through a dataset, applying next_fn to each batch.
     The state is accumulated using log_fn, and a description in the progress bar
@@ -103,35 +90,52 @@ def scan_ds(ds, next_fn, log_fn, desc_fn=None, *args):
     if desc_fn is not None:
         ds = tqdm(ds)
 
-    logs = None
+    log_state = None
 
     for batch in dataset.jax_dataset(ds):
-        jax_batch = utils.dict_map(
-            lambda x: x if isinstance(x, jnp.ndarray) else None, batch
-        )
+
+        jax_batch = utils.dict_filter(lambda x: isinstance(x, jnp.ndarray), batch)
+
         args, aux = next_fn(jax_batch, *args)
-        logs = log_fn(logs, aux)
+        log_state = append_fn(log_state, aux)
+
+        if batch_log_fn is not None:
+            batch_log_fn(log_state)
+
         if desc_fn is not None:
-            ds.set_description(desc_fn(logs, aux))
+            ds.set_description(desc_fn(log_state, aux))
 
-    return logs, *args
+    if epoch_log_fn is not None:
+        epoch_log_fn(log_state, args)
+
+    return log_state, *args
 
 
-def get_train_epoch_fn(train_fn, epoch, desc_keys=None):
+def get_train_epoch_fn(train_fn, epoch, logger=None):
     """
     Train on a dataset.
     """
 
     return lambda ds, *args: scan_ds(
-        ds, train_fn, accumulate_state, desc_fn(f"Epoch {epoch:04d} ", desc_keys), *args
+        ds,
+        *args,
+        next_fn=train_fn,
+        batch_log_fn=log.batch_log_fn(logger),
+        desc_fn=log.running_average_desc_fn(f"Epoch {epoch:04d} "),
+        epoch_log_fn=None,
     )
 
 
-def get_eval_epoch_fn(eval_fn, desc_keys=None):
+def get_eval_epoch_fn(eval_fn, logger=None):
     """
     Evaluate on a dataset.
     """
 
     return lambda ds, *args: scan_ds(
-        ds, eval_fn, accumulate_state, desc_fn("Validation ", desc_keys), *args
+        ds,
+        *args,
+        next_fn=eval_fn,
+        batch_log_fn=None,
+        desc_fn=log.running_average_desc_fn("Evaluation "),
+        epoch_log_fn=log.epoch_log_fn(logger, prefix="eval_"),
     )

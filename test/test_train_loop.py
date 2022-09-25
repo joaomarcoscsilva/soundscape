@@ -1,21 +1,20 @@
 from jax import numpy as jnp
 import jax
+import pytest
 
 from soundscape.lib import train_loop
 
 
-def test_accumulate_state():
-
-    state = {"a": jnp.array([[0.0, 0.0], [0.0, 0.0]]), "b": jnp.array([[0.0], [0.0]])}
-
-    new_state = train_loop.accumulate_state(None, state)
-    assert new_state == state
-
-    aux = {"a": jnp.array([[1.0, 1.0], [1.0, 1.0]]), "b": jnp.array([[1.0], [1.0]])}
-
-    new_state = train_loop.accumulate_state(state, aux)
-
-    assert jnp.all(
-        new_state["a"] == jnp.array([[0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [1.0, 1.0]])
-    )
-    assert jnp.all(new_state["b"] == jnp.array([[0.0], [0.0], [1.0], [1.0]]))
+@pytest.mark.parametrize(
+    "state,new_aux,expected",
+    [
+        (None, {"a": 1.0, "b": 2.0}, {"a": [1.0], "b": [2.0]}),
+        (
+            {"a": [1.0, 2.0], "b": [3.0, 4.0]},
+            {"a": 3.0, "b": 5.0},
+            {"a": [1.0, 2.0, 3.0], "b": [3.0, 4.0, 5.0]},
+        ),
+    ],
+)
+def test_append_fn(state, new_aux, expected):
+    assert train_loop.append_fn(state, new_aux) == expected

@@ -30,7 +30,7 @@ NUM_FRAGMENTS = 16636 if settings["data"]["num_classes"] == 13 else 3809
 def test_class_index(num_classes, species, expected):
     local_settings = settings.copy()
     local_settings["data"]["num_classes"] = num_classes
-    assert dsfn.class_index.call(local_settings, species) == expected
+    assert dsfn.class_index(local_settings)(species) == expected
 
 
 def test_fail_class_index():
@@ -38,7 +38,7 @@ def test_fail_class_index():
     local_settings["data"]["num_classes"] = 14  # invalid number of classes
 
     with pytest.raises(ValueError):
-        dsfn.class_index.call(local_settings, "invalid_class")
+        dsfn.class_index(local_settings)("invalid_class")
 
 
 @pytest.mark.parametrize(
@@ -67,7 +67,7 @@ def test_pad(value, x, y):
 
 
 def test_read_df():
-    df = dsfn.read_df.call(settings, "labels.csv")
+    df = dsfn.read_df(settings)("labels.csv")
 
     assert df["exists"].all()
     assert df["begin_time"].dtype == np.float32
@@ -84,7 +84,7 @@ test_indexes = [0, 1, 1000, NUM_SAMPLES - 1]
 
 @pytest.fixture
 def labels():
-    return dsfn.get_labels("labels.csv")
+    return dsfn.get_labels(settings)("labels.csv")
 
 
 @pytest.fixture
@@ -92,12 +92,12 @@ def wavs(labels):
     def index_labels(i):
         return {k: v[i] for k, v in labels.items()}
 
-    return list(map(dsfn.extract_waveform, map(index_labels, test_indexes)))
+    return list(map(dsfn.extract_waveform(settings), map(index_labels, test_indexes)))
 
 
 @pytest.fixture
 def specs(wavs):
-    return list(map(dsfn.extract_spectrogram, wavs))
+    return list(map(dsfn.extract_spectrogram(settings), wavs))
 
 
 @pytest.fixture
@@ -105,12 +105,12 @@ def loaded_specs(labels):
     def index_labels(i):
         return {k: v[i] for k, v in labels.items()}
 
-    return list(map(dsfn.load_spectrogram, map(index_labels, test_indexes)))
+    return list(map(dsfn.load_spectrogram(settings), map(index_labels, test_indexes)))
 
 
 @pytest.fixture
 def frags(specs):
-    return list(map(dsfn.fragment_borders, specs))
+    return list(map(dsfn.fragment_borders(settings), specs))
 
 
 def test_get_labels(labels):
@@ -132,11 +132,11 @@ def test_get_labels(labels):
 
 
 def test_num_events():
-    assert dsfn.num_events() == NUM_FRAGMENTS
+    assert dsfn.num_events(settings)("labels.csv") == NUM_FRAGMENTS
 
 
 def test_class_frequencies(labels):
-    freqs = dsfn.class_frequencies("labels.csv")
+    freqs = dsfn.class_frequencies(settings)("labels.csv")
     assert freqs.shape == (settings["data"]["num_classes"],)
     assert freqs.dtype == np.float32
     assert freqs.sum() == 1.0
@@ -179,6 +179,29 @@ def test_load_mel_spectrogram(specs, loaded_specs):
                 )
 
 
+@pytest.mark.parametrize(
+    "num_classes,labels,expected",
+    [
+        (
+            2,
+            jnp.array([0, 0, 1, 1, 0]),
+            jnp.array([[1, 0], [1, 0], [0, 1], [0, 1], [1, 0]]),
+        ),
+        (
+            3,
+            jnp.array([0, 1, 2, 1]),
+            jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 1, 0]]),
+        ),
+    ],
+)
+def test_one_hot_labels(num_classes, labels, expected):
+    local_settings = settings.copy()
+    local_settings["data"]["num_classes"] = num_classes
+
+    one_hot = dsfn.one_hot_labels(local_settings)({"labels": labels})["labels"]
+    assert tf.reduce_all(one_hot == expected)
+
+
 def test_fragment_borders(frags):
     for frag in frags:
         interval = frag["frag_intervals"]
@@ -204,18 +227,13 @@ def test_fragment_borders(frags):
                 assert interval[i, 1] > frag["time_intervals"][i, 1]
 
 
-def test_prepare_batch():
-    args = {
-        "spec": jnp.ones((2, 860, 256)) * (256 * 256 - 1),
-        "labels": jnp.array([0, 1]),
-    }
+def test_prepare_image():
+    args = {"spec": jnp.ones((2, 860, 256)) * (256 * 256 - 1)}
 
     local_settings = settings.copy()
     local_settings["data"]["downsample"] = True
-    local_settings["data"]["num_classes"] = 2
 
-    batch = dsfn.prepare_batch.call(local_settings, args)
+    batch = dsfn.prepare_image(local_settings)(args)
 
-    assert jnp.abs(batch["spec"] - jnp.ones((2, 224, 224, 3))).max() < 1e-4
     assert batch["spec"].dtype == jnp.float32
-    assert jnp.all(batch["labels"] == jnp.array([[1, 0], [0, 1]]))
+    assert batch["spec"].shape == (2, 224, 224, 3)

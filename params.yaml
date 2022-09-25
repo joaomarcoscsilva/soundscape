@@ -1,0 +1,40 @@
+seed: 1
+
+data:
+  data_dir: data
+  num_classes: 12   # 2, 12 or 13
+  downsample: true
+
+  spectrogram:
+    window_size: 2048
+    hop_size: 256
+    n_fft: 2048
+    window_fn: hamming_window
+    n_mels: 256
+
+  fragmentation:
+    fragment_size: 3
+    padding_mode: edge
+    begin_time_fn: fixed
+    min_overlap: 0.5
+
+  split:
+    val_frac: 0.2
+    test_frac: 0.2
+
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+
+
+model:
+  name: resnet_50
+  weights: 'imagenet'
+
+train:
+  num_epochs: 100
+  batch_size: 32
+  balanced: false
+  learning_rate: 0.001
+  partition_fn: all
+  optimizing_metric: "+eval_balanced_accuracy"
+

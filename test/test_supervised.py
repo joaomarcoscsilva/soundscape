@@ -16,7 +16,7 @@ def apply_fn(params, fixed_params, state, rng, x, *, is_training=False):
 def test_optim():
     params = {"w": jnp.array([1.0]), "b": jnp.array([2.0])}
 
-    optim, optim_state = supervised.get_optimizer(params)
+    optim, optim_state = supervised.get_optimizer(settings, params)
 
     loss, grad = jax.value_and_grad(lambda *args: apply_fn(*args).mean())(
         params, None, None, None, 1.0
@@ -32,7 +32,7 @@ def test_get_loss():
     local_settings = settings.copy()
     local_settings["model"]["balanced"] = False
 
-    loss_fn = supervised.get_loss(apply_fn)
+    loss_fn = supervised.get_loss(settings, apply_fn)
 
     params = {"w": jnp.array([1.0]), "b": jnp.array([2.0])}
     x = jnp.array([1.0])
@@ -60,9 +60,9 @@ def test_get_update():
     x = jnp.array([1.0])
     y = jnp.array([2.0])
 
-    optim, optim_state = supervised.get_optimizer(params)
-    loss_fn = supervised.get_loss(apply_fn)
-    update_fn = supervised.get_update(loss_fn, optim)
+    optim, optim_state = supervised.get_optimizer(settings, params)
+    loss_fn = supervised.get_loss(settings, apply_fn)
+    update_fn = supervised.get_update(settings, loss_fn, optim)
 
     (new_optim_state, new_params, state), aux = call_and_reap(update_fn, tag="model")(
         optim_state, params, {}, 0.0, None, x, labels=y
