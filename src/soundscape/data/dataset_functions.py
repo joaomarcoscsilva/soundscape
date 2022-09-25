@@ -7,24 +7,29 @@ import jax.numpy as jnp
 import jax
 
 from ..lib import utils, constants
-from ..lib.settings import SettingsFunction
 
 
-@SettingsFunction
-def class_index(settings, species):
+def class_index(settings):
     """
-    Returns the class index of a given species.
+    Return the class index of a given species.
     The returned index depends on settings["data"]["num_classes"].
     """
 
-    if settings["data"]["num_classes"] == 13:
-        return constants.CLASS_INDEX[species] if species in constants.CLASS_INDEX else 0
-    elif settings["data"]["num_classes"] == 12:
-        return constants.CLASS_INDEX[species] - 1
-    elif settings["data"]["num_classes"] == 2:
-        return 0 if species in constants.BIRD_CLASSES else 1
-    else:
-        raise ValueError("Invalid number of classes")
+    def _class_index(species):
+        if settings["data"]["num_classes"] == 13:
+            return (
+                constants.CLASS_INDEX[species]
+                if species in constants.CLASS_INDEX
+                else 0
+            )
+        elif settings["data"]["num_classes"] == 12:
+            return constants.CLASS_INDEX[species] - 1
+        elif settings["data"]["num_classes"] == 2:
+            return 0 if species in constants.BIRD_CLASSES else 1
+        else:
+            raise ValueError("Invalid number of classes")
+
+    return _class_index
 
 
 def stack(x):
@@ -53,199 +58,241 @@ def get_pad_fn(value):
     return f
 
 
-@SettingsFunction
-def read_df(settings, filename):
+def read_df(settings):
     """
     Read the dataframe containing the labelled events.
     """
 
-    # Reads the csv file and selects only the desired rows
-    df = pd.read_csv(os.path.join(settings["data"]["data_dir"], filename))
-    df = df[df["exists"]]
+    def _read_df(filename):
+        # Reads the csv file and selects only the desired rows
+        df = pd.read_csv(os.path.join(settings["data"]["data_dir"], filename))
+        df = df[df["exists"]]
 
-    if settings["data"]["num_classes"] != 13:
-        df = df[df["selected"]]
+        if settings["data"]["num_classes"] != 13:
+            df = df[df["selected"]]
 
-    # Changes the types of some columns to float
-    df.loc[:, ["begin_time", "end_time", "low_freq", "high_freq"]] = df[
-        ["begin_time", "end_time", "low_freq", "high_freq"]
-    ].astype(np.float32)
+        # Changes the types of some columns to float
+        df.loc[:, ["begin_time", "end_time", "low_freq", "high_freq"]] = df[
+            ["begin_time", "end_time", "low_freq", "high_freq"]
+        ].astype(np.float32)
 
-    # Sorts by begin_time
-    df = df.sort_values(by="begin_time")
+        # Sorts by begin_time
+        df = df.sort_values(by="begin_time")
 
-    return df
+        return df
+
+    return _read_df
 
 
-@SettingsFunction
-@cache
-def get_labels(settings, filename):
+def get_labels(settings):
     """
     Return the contents of the `labels.csv` file in a format usable by tf.data.Dataset.from_tensor_slices.
 
     Below, we have:
         - N = number of distinct labelled audio files
-        - E = maximum number of events in a labelled audio file (5)
+        - E = maximum number of events in a labelled audio file
 
-    Returns:
-        - filenames: list of strings of shape (N)
-        - time_intervals: tensor of shape (N, E, 2) containing the start and end times of each event
-        - freq_intervals: tensor of shape (N, E, 2) containing the start and end frequencies of each event
-        - labels: integer tensor of shape (N, E) containing the label of each event (out of the 12 selected classes)
+    Returns a dict with the following keys:
+        - "filename": list of strings of shape (N)
+        - "time_intervals": tensor of shape (N, E, 2) containing the start and end times of each event
+        - "freq_intervals": tensor of shape (N, E, 2) containing the start and end frequencies of each event
+        - "labels": integer tensor of shape (N, E) containing the label of each event (out of the 12 selected classes)
+        - "num_events": integer tensor of shape (N) containing the number of events in each audio file
+        - "index": integer tensor of shape (N) containing the index of each element in the dataset
     """
 
-    df = read_df(filename)
+    _read_df = read_df(settings)
 
-    # Groups by each sound file
-    df = df.groupby("file")
+    @cache
+    def _get_labels(filename):
 
-    # List of filenames
-    filenames = list(df.groups.keys())
+        df = _read_df(filename)
 
-    # List of time intervals
-    time_intervals = np.stack(
-        pd.DataFrame(
-            {
-                "begin_time": df["begin_time"].apply(lambda x: x.values),
-                "end_time": df["end_time"].apply(lambda x: x.values),
-            }
+        # Groups by each sound file
+        df = df.groupby("file")
+
+        # List of filenames
+        filenames = list(df.groups.keys())
+
+        # List of time intervals
+        time_intervals = np.stack(
+            pd.DataFrame(
+                {
+                    "begin_time": df["begin_time"].apply(lambda x: x.values),
+                    "end_time": df["end_time"].apply(lambda x: x.values),
+                }
+            )
+            .apply(stack, axis=1)
+            .apply(get_pad_fn(0))
+            .values
         )
-        .apply(stack, axis=1)
-        .apply(get_pad_fn(0))
-        .values
-    )
 
-    # List of frequency intervals
-    freq_intervals = np.stack(
-        pd.DataFrame(
-            {
-                "low_freq": df["low_freq"].apply(lambda x: x.values),
-                "high_freq": df["high_freq"].apply(lambda x: x.values),
-            }
+        # List of frequency intervals
+        freq_intervals = np.stack(
+            pd.DataFrame(
+                {
+                    "low_freq": df["low_freq"].apply(lambda x: x.values),
+                    "high_freq": df["high_freq"].apply(lambda x: x.values),
+                }
+            )
+            .apply(stack, axis=1)
+            .apply(get_pad_fn(0))
+            .values
         )
-        .apply(stack, axis=1)
-        .apply(get_pad_fn(0))
-        .values
-    )
 
-    # Number of valid events for each audio file
-    num_events = df["species"].size().values.astype(np.int32)
+        # Number of valid events for each audio file
+        num_events = df["species"].size().values.astype(np.int32)
 
-    # List of labels
-    labels = np.stack(
-        df["species"]
-        .apply(lambda x: x.apply(class_index).values)
-        .apply(get_pad_fn(-1))
-        .values
-    ).astype(np.int32)
+        # List of labels
+        labels = np.stack(
+            df["species"]
+            .apply(lambda x: x.apply(class_index(settings)).values)
+            .apply(get_pad_fn(-1))
+            .values
+        ).astype(np.int32)
 
-    indexes = np.arange(len(filenames), dtype=np.int32)
+        indexes = np.arange(len(filenames), dtype=np.int32)
 
-    return {
-        "filename": filenames,
-        "time_intervals": time_intervals,
-        "freq_intervals": freq_intervals,
-        "labels": labels,
-        "num_events": num_events,
-        "index": indexes,
-    }
+        return {
+            "filename": filenames,
+            "time_intervals": time_intervals,
+            "freq_intervals": freq_intervals,
+            "labels": labels,
+            "num_events": num_events,
+            "index": indexes,
+        }
+
+    return _get_labels
 
 
-@SettingsFunction
-def num_events(settings, path="labels.csv"):
+def num_events(settings):
     """
-    Gets the total number of events in the dataset.
+    Get the total number of events in the dataset.
     """
-    return get_labels(path)["num_events"].sum()
+
+    _get_labels = get_labels(settings)
+
+    def _num_events(path):
+        return _get_labels(path)["num_events"].sum()
+
+    return _num_events
 
 
-@SettingsFunction
-def class_frequencies(settings, path="labels.csv"):
+def class_frequencies(settings):
     """
     Return a vector with the relative frequencies of each class.
     """
 
-    labels = get_labels(path)["labels"].flatten()
-    labels = labels[labels != -1]
-    label_counts = np.bincount(labels, minlength=settings["data"]["num_classes"])
-    return jnp.array(label_counts / label_counts.sum())
+    _get_labels = get_labels(settings)
+
+    def _class_frequencies(path):
+
+        labels = _get_labels(path)["labels"].flatten()
+        labels = labels[labels != -1]
+        label_counts = np.bincount(labels, minlength=settings["data"]["num_classes"])
+        return jnp.array(label_counts / label_counts.sum())
+
+    return _class_frequencies
 
 
-@SettingsFunction
-def extract_waveform(settings, args):
+def extract_waveform(settings):
     """
     Extract the waveform of a given audio file.
     """
 
-    wav = tf.io.read_file(
-        tf.strings.join([settings["data"]["data_dir"], args["filename"]], separator="/")
-    )
-    wav, sr = tf.audio.decode_wav(wav)
-    wav = wav[:, 0]
+    def _extract_waveform(args):
+        wav = tf.io.read_file(
+            tf.strings.join(
+                [settings["data"]["data_dir"], args["filename"]], separator="/"
+            )
+        )
+        wav, sr = tf.audio.decode_wav(wav)
+        wav = wav[:, 0]
 
-    return {"wav": wav, **args}
+        return {"wav": wav, **args}
+
+    return _extract_waveform
 
 
-@SettingsFunction
-def load_spectrogram(settings, args):
+def load_spectrogram(settings):
     """
     Load the mel spectrogram from a png image.
     """
 
-    filepath = args["filename"]
-    filepath = tf.strings.regex_replace(filepath, ".wav$", ".png")
-    filepath = tf.strings.regex_replace(filepath, "wavs/", "specs/")
-    filepath = tf.strings.join([settings["data"]["data_dir"], filepath], separator="/")
+    def _load_spectrogram(args):
+        filepath = args["filename"]
+        filepath = tf.strings.regex_replace(filepath, ".wav$", ".png")
+        filepath = tf.strings.regex_replace(filepath, "wavs/", "specs/")
+        filepath = tf.strings.join(
+            [settings["data"]["data_dir"], filepath], separator="/"
+        )
 
-    spec = tf.image.decode_png(tf.io.read_file(filepath), dtype=tf.uint16)
-    spec = spec[:, :, 0]
+        spec = tf.image.decode_png(tf.io.read_file(filepath), dtype=tf.uint16)
+        spec = spec[:, :, 0]
 
-    return {"spec": spec, **args}
+        return {"spec": spec, **args}
+
+    return _load_spectrogram
 
 
-@SettingsFunction
-def extract_spectrogram(settings, args):
+def extract_spectrogram(settings):
     """
     Extract the spectrogram of a given audio waveform.
     """
 
-    stft = tf.signal.stft(
-        args["wav"],
-        frame_length=settings["data"]["spectrogram"]["window_size"],
-        frame_step=settings["data"]["spectrogram"]["hop_size"],
-        fft_length=settings["data"]["spectrogram"]["n_fft"],
-        pad_end=False,
-        window_fn=getattr(tf.signal, settings["data"]["spectrogram"]["window_fn"]),
-    )
+    def _extract_spectrogram(args):
+        args, wav = utils.remove_key(args, "wav")
 
-    mag = tf.abs(stft)
+        stft = tf.signal.stft(
+            wav,
+            frame_length=settings["data"]["spectrogram"]["window_size"],
+            frame_step=settings["data"]["spectrogram"]["hop_size"],
+            fft_length=settings["data"]["spectrogram"]["n_fft"],
+            pad_end=False,
+            window_fn=getattr(tf.signal, settings["data"]["spectrogram"]["window_fn"]),
+        )
 
-    mel = tf.signal.linear_to_mel_weight_matrix(
-        num_mel_bins=settings["data"]["spectrogram"]["n_mels"],
-        num_spectrogram_bins=mag.shape[-1],
-        sample_rate=constants.SR,
-        lower_edge_hertz=10,
-        upper_edge_hertz=constants.SR // 2,
-        dtype=tf.float32,
-    )
+        mag = tf.abs(stft)
 
-    mel_spectrogram = tf.matmul(mag, mel)
+        mel = tf.signal.linear_to_mel_weight_matrix(
+            num_mel_bins=settings["data"]["spectrogram"]["n_mels"],
+            num_spectrogram_bins=mag.shape[-1],
+            sample_rate=constants.SR,
+            lower_edge_hertz=10,
+            upper_edge_hertz=constants.SR // 2,
+            dtype=tf.float32,
+        )
 
-    mel_spectrogram = tf.math.log(mel_spectrogram + 1)
-    mel_spectrogram = mel_spectrogram - tf.reduce_mean(
-        mel_spectrogram, axis=1, keepdims=True
-    )
-    mel_spectrogram = tf.clip_by_value(mel_spectrogram, 0, 6.5)
-    mel_spectrogram = mel_spectrogram / 6.5 * 256**2
-    mel_spectrogram = tf.cast(mel_spectrogram, tf.uint16)
+        mel_spectrogram = tf.matmul(mag, mel)
 
-    args.pop("wav")
+        mel_spectrogram = tf.math.log(mel_spectrogram + 1)
+        mel_spectrogram = mel_spectrogram - tf.reduce_mean(
+            mel_spectrogram, axis=1, keepdims=True
+        )
+        mel_spectrogram = tf.clip_by_value(mel_spectrogram, 0, 6.5)
+        mel_spectrogram = mel_spectrogram / 6.5 * 256**2
+        mel_spectrogram = tf.cast(mel_spectrogram, tf.uint16)
 
-    return {"spec": mel_spectrogram, **args}
+        return {"spec": mel_spectrogram, **args}
+
+    return _extract_spectrogram
 
 
-@SettingsFunction
-def fragment_borders(settings, args):
+def one_hot_labels(settings):
+    """
+    Convert the labels to one-hot encoding.
+    """
+
+    def _one_hot_labels(args):
+        args, labels = utils.remove_key(args, "labels")
+        labels = tf.cast(labels, tf.int32)
+        labels = tf.one_hot(labels, settings["data"]["num_classes"], dtype=tf.int32)
+        return {"labels": labels, **args}
+
+    return _one_hot_labels
+
+
+def fragment_borders(settings):
     """
     To define the fragments used for training, we sample
     random intervals of length `settings["data"]["fragmentation"]["fragment_size"]`
@@ -264,50 +311,59 @@ def fragment_borders(settings, args):
     such that the returned fragments contain every valid fragment
     according to the minimum overlap requirement. This can then be
     used at train time to randomly sample a fragment of the desired
-    size using random cropping."""
-
-    border_sizes = settings["data"]["fragmentation"]["fragment_size"] * (
-        1 - settings["data"]["fragmentation"]["min_overlap"]
-    )
-
-    is_valid_event = args["labels"] != -1
-
-    begin_times = tf.where(
-        is_valid_event,
-        args["time_intervals"][:, 0] - border_sizes,
-        tf.zeros_like(args["time_intervals"][:, 0]),
-    )
-
-    end_times = tf.where(
-        is_valid_event,
-        args["time_intervals"][:, 1] + border_sizes,
-        tf.zeros_like(args["time_intervals"][:, 1]),
-    )
-
-    frag_intervals = tf.stack([begin_times, end_times], axis=1)
-
-    return {"frag_intervals": frag_intervals, **args}
-
-
-@SettingsFunction
-def prepare_batch(settings, args):
-    """
-    Prepare a sample for training.
-    The arguments passed must be jax arrays.
+    size using random cropping.
     """
 
-    args = {**args}
-
-    if settings["data"]["downsample"] is not None:
-        args["spec"] = jax.image.resize(
-            args["spec"], (args["spec"].shape[0], 224, 224), method="bicubic"
+    def _fragment_borders(args):
+        border_sizes = settings["data"]["fragmentation"]["fragment_size"] * (
+            1 - settings["data"]["fragmentation"]["min_overlap"]
         )
 
-    args["spec"] = jnp.float32(args["spec"])
-    args["spec"] = args["spec"][..., None]
-    args["spec"] = args["spec"] / (256**2 - 1)
-    args["spec"] = jnp.repeat(args["spec"], 3, axis=-1)
+        is_valid_event = args["labels"] != -1
 
-    args["labels"] = jax.nn.one_hot(args["labels"], settings["data"]["num_classes"])
+        begin_times = tf.where(
+            is_valid_event,
+            args["time_intervals"][:, 0] - border_sizes,
+            tf.zeros_like(args["time_intervals"][:, 0]),
+        )
 
-    return args
+        end_times = tf.where(
+            is_valid_event,
+            args["time_intervals"][:, 1] + border_sizes,
+            tf.zeros_like(args["time_intervals"][:, 1]),
+        )
+
+        frag_intervals = tf.stack([begin_times, end_times], axis=1)
+
+        return {"frag_intervals": frag_intervals, **args}
+
+    return _fragment_borders
+
+
+def prepare_image(settings):
+    """
+    Prepare a spectrogram image for training, by resizing, normalizing and replicating
+    the channels.
+    """
+
+    def _preprocess_input(args):
+        args, spec = utils.remove_key(args, "spec")
+
+        spec = jnp.float32(spec) / (256**2 - 1)
+
+        if settings["data"]["downsample"]:
+            spec = jax.image.resize(spec, (spec.shape[0], 224, 224), method="bicubic")
+
+        spec = spec[:, :, :, None]
+        spec = jnp.repeat(spec, 3, axis=-1)
+
+        spec = spec - jnp.array(settings["data"]["mean"], dtype=jnp.float32).reshape(
+            (1, 1, 1, 3)
+        )
+        spec = spec / jnp.array(settings["data"]["std"], dtype=jnp.float32).reshape(
+            (1, 1, 1, 3)
+        )
+
+        return {"spec": spec, **args}
+
+    return _preprocess_input

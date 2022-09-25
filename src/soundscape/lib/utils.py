@@ -17,6 +17,14 @@ def dict_map(fn, d):
     return {k: fn(v) for k, v in d.items()}
 
 
+def dict_filter(fn, d):
+    """
+    Filter a dictionary to only contain certain keys.
+    """
+
+    return {k: v for k, v in d.items() if fn(v)}
+
+
 def parallel_map(fn, args, use_tqdm=True):
     """
     Map a function to a list of arguments in parallel.
@@ -112,6 +120,8 @@ def time2pos(tensor_length, time, ceil=False):
     x = tensor_length * time / 60
     if ceil:
         x = jnp.ceil(x)
+    else:
+        x = jnp.floor(x)
     return jnp.int32(x)
 
 
@@ -216,10 +226,18 @@ def remove_index(tup, index):
 
 
 def insert_index(tup, index, val):
+    """
+    Insert a value in a tuple at a given index.
+    """
+
     if index < 0:
         index += len(tup) + 1
     return tup[:index] + (val,) + tup[index:]
 
 
 def remove_key(dic, key):
+    """
+    Remove a key from a dictionary.
+    """
+
     return {k: v for k, v in dic.items() if k != key}, dic[key]

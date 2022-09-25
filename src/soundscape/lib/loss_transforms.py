@@ -9,9 +9,7 @@ from . import sow_transforms
 
 def weighted(loss_fn, class_weights=None):
     """
-    Takes in a loss function and returns a new function that
-    weights samples according to their target labels. The weights for each
-    class must be passed as an argument to the constructor.
+    Apply weights to a loss function depending on the true labels.
     """
 
     if class_weights is None:
@@ -25,21 +23,23 @@ def weighted(loss_fn, class_weights=None):
 
 
 def mean_loss(loss_fn):
+    """
+    Transform a loss function to return the mean loss.
+    """
+
     def _loss(*args, **kwargs):
         return loss_fn(*args, **kwargs).mean()
 
     return _loss
 
 
-def applied_loss(loss_fn, logits_fn):
+def applied_loss(loss_fn, apply_fn):
     """
-    Takes in a loss function and a function that produces logits
-    and returns a function that combine the two. The loss function
-    and any auxiliary    metrics are reduced before being returned.
+    Merge a loss function with an apply function.
     """
 
     def _applied_loss(params, *args, labels, **kwargs):
-        logits = logits_fn(params, *args, **kwargs)
+        logits = apply_fn(params, *args, **kwargs)
         loss = loss_fn(logits=logits, labels=labels)
         return loss
 
@@ -48,8 +48,7 @@ def applied_loss(loss_fn, logits_fn):
 
 def update(loss_fn, optimizer):
     """
-    Takes in a loss function transformed by jax.value_and_grad
-    and an optimizer and returns an update function.
+    Create an update function from a loss function and an optimizer.
     """
 
     def _update(optim_state, params, *args, labels, **kwargs):

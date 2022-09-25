@@ -44,4 +44,6 @@ RUN git config --global --add safe.directory /home/jmsilva/soundscape
 RUN git config --global user.email joaomarcoscsilva@usp.br
 RUN git config --global user.name "João Marcos Cardoso da Silva"
 
+ENV PYTHONPATH $PYTHONPATH:/home/jmsilva/soundscape/src
+
 CMD zsh

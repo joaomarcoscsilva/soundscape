@@ -1,13 +1,27 @@
 stages:
-  train:
+  split:
+    cmd: python src/script/split_labels.py
+    deps:
+        - data/labels.csv
+        - src/script/split_labels.py
+    params:
+        - data.data_dir
+        - data.split
+
+    outs:
+        - data/train_labels.csv
+        - data/test_labels.csv
+        - data/val_labels.csv
+        
+  train_supervised:
     cmd: python src/run_supervised.py
     deps:
     - data/train_labels.csv
     - data/val_labels.csv
-    - src
+    - src/run_supervised.py
+    - src/soundscape
     params:
-    - settings.yaml:
-        - seed
+        - params.yaml:
     outs:
     - models
     metrics:
@@ -16,3 +30,5 @@ stages:
     plots:
     - plots:
         cache: false
+
+

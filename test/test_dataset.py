@@ -27,22 +27,22 @@ def assert_dicts_all_equal(dicts, key, value=None, dtype=None):
 
 @pytest.fixture
 def labels_ds():
-    return dataset.labels_dataset()
+    return dataset.labels_dataset(settings)
 
 
 @pytest.fixture
 def waveform_ds():
-    return dataset.waveform_dataset()
+    return dataset.waveform_dataset(settings)
 
 
 @pytest.fixture
 def spec_ds():
-    return dataset.spectrogram_dataset(from_disk=False)
+    return dataset.spectrogram_dataset(settings, from_disk=False)
 
 
 @pytest.fixture
 def loaded_spec_ds():
-    return dataset.spectrogram_dataset(from_disk=True)
+    return dataset.spectrogram_dataset(settings, from_disk=True)
 
 
 def test_label_dataset(labels_ds, waveform_ds, spec_ds, loaded_spec_ds):
@@ -133,7 +133,7 @@ def test_add_rng(rng, loaded_spec_ds):
 
 def test_fragment_dataset(rng, loaded_spec_ds):
 
-    fragment_ds = dataset.fragment_dataset(loaded_spec_ds, rng)
+    fragment_ds = dataset.fragment_dataset(settings, loaded_spec_ds, rng)
 
     entries = [x for x in loaded_spec_ds.take(n)]
 

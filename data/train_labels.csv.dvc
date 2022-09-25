@@ -1,4 +1,0 @@
-outs:
-- md5: a2886b2cb2bc60688007ca8a8f51adcf
-  size: 1394502
-  path: train_labels.csv

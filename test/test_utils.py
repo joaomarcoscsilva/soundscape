@@ -5,7 +5,7 @@ import pytest
 
 from soundscape.lib import utils
 
-# Functions used in test_parallel_map since it's not possible to use lambdas.
+
 def inc_fn(x):
     return x + 1
 
@@ -14,11 +14,34 @@ def sqr_fn(x):
     return x * x
 
 
-def test_dict_map():
-    fn = lambda x: x + 1
-    d = {"a": 1, "b": 2, "c": 3}
-    expected = {"a": 2, "b": 3, "c": 4}
+@pytest.mark.parametrize(
+    "fn,d,expected",
+    [
+        (inc_fn, {"a": 1.0, "b": 2.0}, {"a": 2.0, "b": 3.0}),
+        (sqr_fn, {"a": 3.0, "b": 2.0}, {"a": 9.0, "b": 4.0}),
+        (sqr_fn, {"a": jnp.array([3.0, 4.0])}, {"a": jnp.array([9.0, 16.0])}),
+    ],
+)
+def test_dict_map(fn, d, expected):
     assert utils.dict_map(fn, d) == expected
+
+
+def test_dict_filter():
+    d = {
+        "a": 0,
+        "b": jnp.array([1, 2, 3]),
+        "c": "hello",
+        "d": jnp.ones((2, 2)),
+        "e": lambda: None,
+    }
+
+    expected_keys = {"b", "d"}
+
+    filtered = utils.dict_filter(lambda v: isinstance(v, jnp.ndarray), d)
+
+    assert set(filtered.keys()) == expected_keys
+    for key in filtered.keys():
+        assert jnp.all(filtered[key] == d[key])
 
 
 @pytest.mark.parametrize(
@@ -135,6 +158,8 @@ def test_hash_dict(d):
     d_hashed = utils.hash_dict(d)
     assert_dicts_equal(d, d_hashed)
     assert hash(d_hashed) is not None
+
+    assert d_hashed.copy() is not d_hashed
 
 
 def test_flatten_unflatten_fn():

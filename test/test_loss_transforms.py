@@ -39,6 +39,11 @@ def test_weighted(logits, labels, class_weights, expected):
     assert jnp.allclose(weighted_loss(logits, labels), expected)
 
 
+def test_mean_loss():
+    mean_loss = loss_transforms.mean_loss(loss_fn)
+    assert mean_loss(jnp.array([[1, 2, 3], [4, 5, 6]]), jnp.array([1, 2, 3])) == 3.5
+
+
 @pytest.mark.parametrize(
     "params,inputs,expected_loss,expected_logits,expected_grad",
     [
@@ -57,6 +62,7 @@ def test_applied_loss_and_update(
 
     # Test applied_loss
     applied_loss = loss_transforms.applied_loss(loss_fn, logit_fn)
+    applied_loss = loss_transforms.mean_loss(applied_loss)
 
     loss = applied_loss(params, inputs, labels=None)
     assert jnp.allclose(loss, expected_loss)
