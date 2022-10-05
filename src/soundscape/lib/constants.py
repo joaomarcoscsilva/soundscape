@@ -1,3 +1,5 @@
+from .settings import settings
+
 BIRD_CLASSES = [
     "basi_culi",
     "myio_leuc",
@@ -23,3 +25,9 @@ CLASS_INDEX = {c: i + 1 for i, c in enumerate(ALL_CLASSES)}
 MAX_EVENTS = 18
 
 SR = 44100
+
+CLASS_NAMES = {
+    2: ["bird", "frog"],
+    12: ALL_CLASSES,
+    13: ["other"] + ALL_CLASSES,
+}[settings["data"]["num_classes"]]

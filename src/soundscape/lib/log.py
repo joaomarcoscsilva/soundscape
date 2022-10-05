@@ -2,8 +2,11 @@ from jax import numpy as jnp
 import copy
 import pickle
 import json
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-from . import utils
+from . import utils, constants
 
 
 at_least_one_dim = lambda l: [x if x.ndim > 0 else x[None] for x in l]
@@ -73,7 +76,9 @@ class Logger:
 
         return max(vals) == vals[-1]
 
-    def consolidate(self, to_pickle):
+    def consolidate(
+        self, to_pickle, confusion_labels_key=None, confusion_preds_key=None
+    ):
         """
         Update the metrics.json file with the current values and saves
         a checkpoint of the model in models/model.pkl.
@@ -93,6 +98,11 @@ class Logger:
         with open(f"models/model.pkl", "wb") as f:
             pickle.dump(to_pickle, f)
 
+        if confusion_labels_key is not None and confusion_preds_key is not None:
+            self.confusion_matrix(
+                "eval_labels", "eval_predictions", filename="plots/best_confusion.png"
+            )
+
     def step(self):
         """
         Increment the step counter.
@@ -100,9 +110,10 @@ class Logger:
 
         self._step += 1
 
-    def save(self, to_pickle=None):
+    def save(self, to_pickle=None, confusion_labels_key=None, confusion_preds_key=None):
         """
         Save the logged data to tsv files.
+        Returns True if the model was saved.
         """
 
         for key, v in self.data.items():
@@ -120,7 +131,36 @@ class Logger:
             self.last_saved[key] = len(v)
 
         if self.is_best():
-            self.consolidate(to_pickle)
+            self.consolidate(to_pickle, confusion_labels_key, confusion_preds_key)
+
+    def confusion_matrix(self, labels_key, preds_key, filename=None):
+        """
+        Plot a confusion matrix using the latest saved versions of labels_key and preds_key.
+        """
+
+        labels = self.data[labels_key][-1][1]
+        preds = self.data[preds_key][-1][1]
+
+        conf_mat = confusion_matrix(labels, preds, normalize="true")
+
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(
+            conf_mat,
+            annot=True,
+            fmt=".2f",
+            vmin=0.0,
+            vmax=1.0,
+            xticklabels=constants.CLASS_NAMES,
+            yticklabels=constants.CLASS_NAMES,
+        )
+
+        plt.xlabel("Predicted")
+        plt.ylabel("True")
+
+        if filename is None:
+            filename = f"plots/confusion/{self._step}.png"
+
+        plt.savefig(filename)
 
     def __del__(self):
         """
@@ -172,14 +212,19 @@ def epoch_log_fn(logger, prefix=""):
 
         if "predictions" in log_state.keys():
             log_state = copy.deepcopy(log_state)
+
             preds = log_state.pop("predictions")
             labels = log_state.pop("labels")
+
             logger.log(prefix + "predictions", preds.tolist())
             logger.log(prefix + "labels", labels.tolist(), once=True)
+
+            logger.confusion_matrix(prefix + "labels", prefix + "predictions")
 
         log_state = utils.dict_map(jnp.mean, log_state)
 
         log_dict(logger, log_state, prefix)
-        logger.save(to_pickle)
+
+        logger.save(to_pickle, prefix + "labels", prefix + "predictions")
 
     return _log

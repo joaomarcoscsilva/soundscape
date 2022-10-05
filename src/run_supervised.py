@@ -12,6 +12,9 @@ if not os.path.exists("models"):
 if not os.path.exists("plots"):
     os.mkdir("plots")
 
+if not os.path.exists("plots/confusion"):
+    os.mkdir("plots/confusion")
+
 
 rng = jax.random.PRNGKey(settings["seed"])
 
