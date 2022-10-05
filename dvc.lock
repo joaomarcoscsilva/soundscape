@@ -1,0 +1,94 @@
+schema: '2.0'
+stages:
+  split:
+    cmd: python src/script/split_labels.py
+    deps:
+    - path: data/labels.csv
+      md5: b5bf09be1bfeccd9d83d33cf1a960465
+      size: 2308322
+    - path: src/script/split_labels.py
+      md5: 1245a5c342274baad74a12e9950ad0a3
+      size: 1064
+    params:
+      params.yaml:
+        data.data_dir: data
+        data.split:
+          val_frac: 0.2
+          test_frac: 0.2
+    outs:
+    - path: data/test_labels.csv
+      md5: 23d71c9046991c71b03ad1bbdd3ae1e2
+      size: 452527
+    - path: data/train_labels.csv
+      md5: a2886b2cb2bc60688007ca8a8f51adcf
+      size: 1394502
+    - path: data/val_labels.csv
+      md5: 59975fa6ffa91015e96f0991176f168b
+      size: 461965
+  train_supervised:
+    cmd: python src/run_supervised.py
+    deps:
+    - path: data/train_labels.csv
+      md5: a2886b2cb2bc60688007ca8a8f51adcf
+      size: 1394502
+    - path: data/val_labels.csv
+      md5: 59975fa6ffa91015e96f0991176f168b
+      size: 461965
+    - path: src/run_supervised.py
+      md5: d94106dcc79db18ed81eef52dfaf1c4c
+      size: 802
+    - path: src/soundscape
+      md5: 203b979a70a7f5a977e69fa3eccd1fd4.dir
+      size: 102859
+      nfiles: 36
+    params:
+      params.yaml:
+        data:
+          data_dir: data
+          num_classes: 12
+          downsample: true
+          spectrogram:
+            window_size: 2048
+            hop_size: 256
+            n_fft: 2048
+            window_fn: hamming_window
+            n_mels: 256
+          fragmentation:
+            fragment_size: 3
+            padding_mode: edge
+            begin_time_fn: fixed
+            min_overlap: 0.5
+          split:
+            val_frac: 0.2
+            test_frac: 0.2
+          mean:
+          - 0.485
+          - 0.456
+          - 0.406
+          std:
+          - 0.229
+          - 0.224
+          - 0.225
+        model:
+          name: resnet_50
+          weights: imagenet
+        seed: 1
+        train:
+          num_epochs: 100
+          batch_size: 32
+          balanced: false
+          learning_rate: 0.001
+          partition_fn: all
+          optimizing_metric: +eval_balanced_accuracy
+    outs:
+    - path: metrics.json
+      md5: aa7cab9f674d6a668bf8b3697b183f7b
+      size: 194
+    - path: models
+      md5: 21bddaf3ade7588e40ac393cdd0eeaec.dir
+      size: 94361362
+      nfiles: 1
+    - path: plots
+      md5: 87a02839d85eccc9912da680eec95787.dir
+      size: 858528
+      nfiles: 10
