@@ -1,165 +1,346 @@
-from json import load
-import tensorflow as tf
-import numpy as np
-import jax
-from jax import numpy as jnp
+from soundscape import dataset, settings
+
 import os
+import jax
+from jax import random, numpy as jnp
+import numpy as np
+import tensorflow as tf
 import pytest
+import pandas as pd
 
-from soundscape.data import dataset
-from soundscape.lib import constants, utils
-from soundscape.lib.settings import settings
-
-
-# Number of samples to test in each dataset
-n = 4
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 
-def assert_dicts_all_equal(dicts, key, value=None, dtype=None):
-    if value == None:
-        value = dicts[0][key]
-
-    for d in dicts:
-        assert tf.reduce_all(d[key] == value)
-        if dtype is not None:
-            assert d[key].dtype == dtype
+def test_read_audio_file():
+    filename = "test/data/0.wav"
+    audio = dataset.read_audio_file(filename)
+    assert audio.shape == (22050 * 5, 1)
 
 
-@pytest.fixture
-def labels_ds():
-    return dataset.labels_dataset(settings)
+def test_read_image_file():
+    filename = "test/data/0.png"
+    img = dataset.read_image_file(filename, precision=16)
+    assert img.shape == (256, 423, 1)
+    assert img.dtype == tf.uint16
 
 
-@pytest.fixture
-def waveform_ds():
-    return dataset.waveform_dataset(settings)
+def test_get_classes():
+    class_order = ["other", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]
+    class_order_2 = ["first_6", "last_6"]
 
-
-@pytest.fixture
-def spec_ds():
-    return dataset.spectrogram_dataset(settings, from_disk=False)
-
-
-@pytest.fixture
-def loaded_spec_ds():
-    return dataset.spectrogram_dataset(settings, from_disk=True)
-
-
-def test_label_dataset(labels_ds, waveform_ds, spec_ds, loaded_spec_ds):
-
-    for i, (l, w, s, ls) in enumerate(
-        zip(
-            labels_ds.take(n),
-            waveform_ds.take(n),
-            spec_ds.take(n),
-            loaded_spec_ds.take(n),
-        )
+    with settings.Settings(
+        {"class_order": class_order, "class_order_2": class_order_2, "num_classes": 12}
     ):
-        assert_dicts_all_equal((l, w, s, ls), key="filename", dtype=tf.string)
-        assert_dicts_all_equal((l, w, s, ls), key="time_intervals", dtype=tf.float32)
-        assert_dicts_all_equal((l, w, s, ls), key="freq_intervals", dtype=tf.float32)
-        assert_dicts_all_equal((l, w, s, ls), key="labels", dtype=tf.int32)
-        assert_dicts_all_equal((l, w, s, ls), key="num_events", dtype=tf.int32)
-        assert_dicts_all_equal((l, w, s, ls), key="index", value=tf.constant(i))
-
-        assert_dicts_all_equal((w, s, ls), key="frag_intervals", dtype=tf.float32)
-
-        assert tf.reduce_all(w["time_intervals"][:, 1] - w["time_intervals"][:, 0] >= 0)
-        assert tf.reduce_all(w["freq_intervals"][:, 1] - w["freq_intervals"][:, 0] >= 0)
-
-        valid_frags = w["frag_intervals"][0 : w["num_events"]]
-        invalid_frags = w["frag_intervals"][w["num_events"] :]
-        assert tf.reduce_all(
-            valid_frags[:, 1] - valid_frags[:, 0]
-            >= settings["data"]["fragmentation"]["fragment_size"]
+        classes, idx_fn = dataset.get_classes(
+            num_classes=13,
         )
-        assert tf.reduce_all(invalid_frags == 0)
+        class_names = dataset.get_class_names(num_classes=13)
 
-        assert w["wav"].shape == (constants.SR * 60)
-        assert w["wav"].dtype == tf.float32
+        assert classes == class_order == class_names
+        assert idx_fn("a") == 1
+        assert idx_fn("other") == 0
+        assert idx_fn("l") == 12
 
-        assert "wav" not in s
-        assert "wav" not in ls
+        classes, idx_fn = dataset.get_classes(
+            num_classes=12,
+        )
+        class_names = dataset.get_class_names(num_classes=12)
 
-        assert s["spec"].shape == ls["spec"].shape
-        assert s["spec"].dtype == ls["spec"].dtype == tf.uint16
-        assert tf.reduce_all(
-            tf.cast(s["spec"], tf.int32) - tf.cast(ls["spec"], tf.int32) <= 1
+        assert classes == class_order[1:] == class_names
+        assert idx_fn("a") == 0
+        assert idx_fn("l") == 11
+        assert "other" not in classes
+
+        classes, idx_fn = dataset.get_classes(
+            num_classes=2,
+        )
+        class_names = dataset.get_class_names(num_classes=2)
+
+        assert classes == class_order_2 == class_names
+        assert idx_fn("a") == 0
+        assert idx_fn("b") == 0
+        assert idx_fn("f") == 0
+        assert idx_fn("g") == 1
+        assert idx_fn("i") == 1
+        assert idx_fn("l") == 1
+        assert "other" not in classes
+
+        with pytest.raises(ValueError):
+            dataset.get_classes(num_classes=11)
+
+
+@pytest.mark.parametrize(
+    "num_classes, num_train, num_val, num_test",
+    [(13, 9990, 3323, 3323), (12, 2293, 758, 758), (2, 2293, 758, 758)],
+)
+def test_dataset(num_classes, num_train, num_val, num_test):
+    with settings.Settings(
+        {
+            "data_dir": "data",
+            "spectrogram_dir": "leec",
+            "num_classes": 13,
+            "class_order": [
+                "other",
+                "basi_culi",
+                "myio_leuc",
+                "vire_chiv",
+                "cycl_guja",
+                "pita_sulp",
+                "zono_cape",
+                "dend_minu",
+                "apla_leuc",
+                "isch_guen",
+                "phys_cuvi",
+                "boan_albo",
+                "aden_marm",
+            ],
+            "class_order_2": ["bird", "frog"],
+            "extension": "png",
+        }
+    ):
+        class_names = dataset.get_class_names(num_classes=num_classes)
+
+        rng = random.PRNGKey(0)
+
+        train_ds = dataset.get_dataset_dict("train", rng, num_classes=num_classes)
+        assert len(train_ds["_file"]) == num_train
+        assert len(train_ds["labels"]) == num_train
+        assert len(train_ds["id"]) == num_train
+
+        val_ds = dataset.get_dataset_dict("val", rng, num_classes=num_classes)
+        assert len(val_ds["_file"]) == num_val
+        assert len(val_ds["labels"]) == num_val
+        assert len(val_ds["id"]) == num_val
+
+        test_ds = dataset.get_dataset_dict("test", rng, num_classes=num_classes)
+        assert len(test_ds["_file"]) == num_test
+        assert len(test_ds["labels"]) == num_test
+        assert len(test_ds["id"]) == num_test
+
+        assert set(train_ds["id"]) & set(val_ds["id"]) == set()
+        assert set(train_ds["id"]) & set(test_ds["id"]) == set()
+        assert set(val_ds["id"]) & set(test_ds["id"]) == set()
+
+        assert set(train_ds["_file"]) & set(val_ds["_file"]) == set()
+        assert set(train_ds["_file"]) & set(test_ds["_file"]) == set()
+        assert set(val_ds["_file"]) & set(test_ds["_file"]) == set()
+
+        assert len(set(train_ds["id"])) == num_train
+        assert len(set(val_ds["id"])) == num_val
+        assert len(set(test_ds["id"])) == num_test
+
+        assert (
+            set(train_ds["labels"])
+            == set(val_ds["labels"])
+            == set(test_ds["labels"])
+            == set(range(num_classes))
         )
 
-        filename = ls["filename"].numpy().decode()
-        assert filename.endswith(".wav")
-        filename = filename.replace(".wav", ".png").replace("wavs/", "specs/")
-        filename = os.path.join(settings["data"]["data_dir"], filename)
-        loaded_file = tf.image.decode_png(tf.io.read_file(filename), dtype=tf.uint16)
+        mean_train = jax.nn.one_hot(train_ds["labels"], 13).mean(0)
+        mean_val = jax.nn.one_hot(val_ds["labels"], 13).mean(0)
+        mean_test = jax.nn.one_hot(test_ds["labels"], 13).mean(0)
 
-        assert tf.reduce_all(
-            tf.cast(s["spec"], tf.int32) - tf.cast(loaded_file[:, :, 0], tf.int32) <= 1
-        )
+        assert jnp.allclose(mean_train, mean_val, atol=0.005)
+        assert jnp.allclose(mean_train, mean_test, atol=0.005)
+        assert jnp.allclose(mean_val, mean_test, atol=0.005)
 
+        if num_classes in [13, 12]:
+            for ds, split_name in zip(
+                (train_ds, val_ds, test_ds), ("train", "val", "test")
+            ):
+                for i in range(10):
+                    class_id = ds["labels"][i]
+                    class_name = class_names[class_id]
+                    idx = ds["id"][i]
+                    files = os.listdir(f"data/leec/{split_name}/{class_name}/")
 
-def test_batching(loaded_spec_ds):
-
-    for x in loaded_spec_ds.take(n):
-        break
-
-    for batch in loaded_spec_ds.take(n).batch(n // 2):
-        for key in batch:
-            assert batch[key].shape == (n // 2, *x[key].shape)
-
-
-@pytest.fixture
-def rng():
-    return jax.random.PRNGKey(0)
+                    assert f"{idx}.png" in files
+                    assert f"{idx}.wav" in files
 
 
-def test_add_rng(rng, loaded_spec_ds):
+def test_get_tensorflow_dataset():
+    with settings.Settings(
+        {
+            "data_dir": "data",
+            "spectrogram_dir": "leec",
+            "num_classes": 13,
+            "class_order": [
+                "other",
+                "basi_culi",
+                "myio_leuc",
+                "vire_chiv",
+                "cycl_guja",
+                "pita_sulp",
+                "zono_cape",
+                "dend_minu",
+                "apla_leuc",
+                "isch_guen",
+                "phys_cuvi",
+                "boan_albo",
+                "aden_marm",
+            ],
+            "class_order_2": ["bird", "frog"],
+            "extension": "png",
+            "precision": 16,
+        }
+    ):
+        rng = jax.random.PRNGKey(0)
 
-    ds_rng = dataset.add_rng(loaded_spec_ds, rng)
-    rng = utils.jax2tf(rng).numpy()
+        train_ds = dataset.get_tensorflow_dataset("train", rng)
+        val_ds = dataset.get_tensorflow_dataset("val", rng)
+        test_ds = dataset.get_tensorflow_dataset("test", rng)
 
-    rngs = []
+        train_dict = dataset.get_dataset_dict("train", rng)
+        val_dict = dataset.get_dataset_dict("val", rng)
+        test_dict = dataset.get_dataset_dict("test", rng)
 
-    for x, x_rng in zip(loaded_spec_ds.take(n), ds_rng.take(n)):
-        assert "rng" not in x
-        assert "rng" in x_rng
-        assert x_rng["rng"].shape == rng.shape
-        assert x_rng["rng"].dtype == rng.dtype
-        assert not tf.reduce_all(x_rng["rng"] == rng)
-        rngs.append(str(x_rng["rng"].numpy()))
+        for ds, ds_dict in zip(
+            (train_ds, val_ds, test_ds), (train_dict, val_dict, test_dict)
+        ):
+            for i, batch in enumerate(ds.take(32)):
+                assert batch["inputs"].shape == (256, 423, 1)
+                assert batch["labels"] == ds_dict["labels"][i]
+                assert batch["id"] == ds_dict["id"][i]
+                assert batch["_file"] == ds_dict["_file"][i]
 
-    assert len(set(rngs)) == len(rngs)
+        train_ds_audio = dataset.get_tensorflow_dataset("train", rng, extension="wav")
+        val_ds_audio = dataset.get_tensorflow_dataset("val", rng, extension="wav")
+        test_ds_audio = dataset.get_tensorflow_dataset("test", rng, extension="wav")
 
+        train_dict = dataset.get_dataset_dict("train", rng, extension="wav")
+        val_dict = dataset.get_dataset_dict("val", rng, extension="wav")
+        test_dict = dataset.get_dataset_dict("test", rng, extension="wav")
 
-def test_fragment_dataset(rng, loaded_spec_ds):
-
-    fragment_ds = dataset.fragment_dataset(settings, loaded_spec_ds, rng)
-
-    entries = [x for x in loaded_spec_ds.take(n)]
-
-    fragment_ds_it = fragment_ds.as_numpy_iterator()
-
-    for entry in entries:
-        for i in range(entry["num_events"].numpy()):
-            x = next(fragment_ds_it)
-
-            for key in ["filename", "num_events"]:
-                assert x[key] == entry[key].numpy()
-
-            for key in ["frag_intervals", "freq_intervals", "time_intervals"]:
-                assert tf.reduce_all(x[key] == entry[key][i])
-
-            assert x["spec"].ndim == 2
-            assert x["spec"].shape[-1] == settings["data"]["spectrogram"]["n_mels"]
+        for ds, ds_dict in zip(
+            (train_ds_audio, val_ds_audio, test_ds_audio),
+            (train_dict, val_dict, test_dict),
+        ):
+            for i, batch in enumerate(ds.take(32)):
+                assert batch["inputs"].shape == (22050 * 5, 1)
+                assert batch["labels"] == ds_dict["labels"][i]
+                assert batch["id"] == ds_dict["id"][i]
+                assert batch["_file"] == ds_dict["_file"][i]
 
 
-def test_jax_dataset(loaded_spec_ds):
-    ds = loaded_spec_ds.take(n)
-    jaxds = dataset.jax_dataset(ds)
+def test_tf2jax():
+    a = {
+        "inputs": tf.random.uniform((10, 256, 256, 3)),
+        "labels": tf.random.uniform((10,), minval=0, maxval=13, dtype=tf.int32),
+        "id": tf.random.uniform((10,), minval=0, maxval=1000, dtype=tf.int32),
+        "rngs": tf.random.uniform((10, 2), minval=0, maxval=1000, dtype=tf.int32),
+        "_file": tf.constant(["string"] * 10),
+    }
 
-    for x_tf, x_jax in zip(ds, jaxds):
-        for key in x_tf:
-            if x_tf[key].dtype == tf.string:
-                assert x_tf[key].numpy().decode() == x_jax[key]
-            else:
-                assert jnp.all(x_tf[key].numpy() == x_jax[key])
+    b = dataset.tf2jax(a)
+
+    assert isinstance(b["inputs"], jnp.ndarray)
+    assert isinstance(b["labels"], jnp.ndarray)
+    assert isinstance(b["id"], jnp.ndarray)
+    assert isinstance(b["rngs"], jnp.ndarray)
+    assert type(b["_file"]) == np.ndarray
+
+    assert (b["inputs"] == a["inputs"].numpy()).all()
+    assert (b["labels"] == a["labels"].numpy()).all()
+    assert (b["id"] == a["id"].numpy()).all()
+    assert (b["rngs"] == a["rngs"].numpy()).all()
+    assert (b["_file"] == a["_file"].numpy()).all()
+
+
+def test_split_rng():
+    rng1 = jax.random.PRNGKey(0)
+    rng2 = jax.random.PRNGKey(1)
+
+    values1 = {"rng": rng1, "inputs": jnp.zeros((10, 10))}
+    values2 = {"rng": rng2, "inputs": jnp.ones((12, 10))}
+
+    values1 = dataset.split_rng(values1)
+    values2 = dataset.split_rng(values2)
+
+    assert not jnp.array_equal(values1["rng"], values2["rng"])
+    assert not jnp.array_equal(values1["rng"], rng1)
+    assert not jnp.array_equal(values2["rng"], rng2)
+    assert values1["rngs"].shape == (10, 2)
+    assert values2["rngs"].shape == (12, 2)
+
+
+def test_prepare_image():
+    rng = jax.random.PRNGKey(0)
+    img = jax.random.randint(rng, (10, 1000, 128, 1), 0, 2**16 - 1, dtype=jnp.uint16)
+
+    img2 = dataset.prepare_image({"inputs": img}, precision=16)["inputs"]
+
+    assert img2.shape == (10, 1000, 128, 3)
+    assert img2.dtype == jnp.float32
+    assert img2.min() >= 0
+    assert img2.max() <= 1
+
+    assert jnp.allclose(img2.mean(), 0.5, atol=0.01)
+    assert jnp.allclose(img2[..., 0], img2[..., 1], atol=0.01)
+    assert jnp.allclose(img2[..., 0], img2[..., 2], atol=0.01)
+    assert jnp.allclose(img2[..., 0], img[..., 0] / 2**16, atol=0.01)
+
+
+def test_downsample_image():
+    rng = jax.random.PRNGKey(0)
+    img = jax.random.randint(rng, (10, 1000, 128, 2), 0, 2**16 - 1, dtype=jnp.uint16)
+
+    img2 = dataset.downsample_image({"inputs": img})["inputs"]
+
+    assert img2.shape == (10, 224, 224, 2)
+    assert jnp.linalg.matrix_rank(img2.reshape(10, -1)) == 10
+
+
+def test_one_hot_encode():
+    labels = jnp.array(
+        [
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+        ]
+    )
+    new_labels = dataset.one_hot_encode({"labels": labels}, num_classes=10)
+
+    assert jnp.allclose(new_labels["one_hot_labels"][0], jnp.eye(10))
+    assert jnp.allclose(new_labels["one_hot_labels"][1], jnp.eye(10)[::-1])
+    assert jnp.allclose(new_labels["labels"], labels)
+
+
+@pytest.mark.parametrize("num_classes", [2, 12, 13])
+def test_get_class_weights(num_classes):
+    with settings.Settings(
+        {
+            "data_dir": "data",
+            "labels_file": "labels.csv",
+            "num_classes": 13,
+            "class_order": [
+                "other",
+                "basi_culi",
+                "myio_leuc",
+                "vire_chiv",
+                "cycl_guja",
+                "pita_sulp",
+                "zono_cape",
+                "dend_minu",
+                "apla_leuc",
+                "isch_guen",
+                "phys_cuvi",
+                "boan_albo",
+                "aden_marm",
+            ],
+            "class_order_2": ["bird", "frog"],
+        }
+    ):
+        weights = dataset.get_class_weights(num_classes=num_classes)
+        classes, class_idx_fn = dataset.get_classes(num_classes=num_classes)
+        assert len(weights) == num_classes
+
+        df = pd.read_csv("data/labels.csv")
+        df = df[df["exists"]]
+
+        if num_classes != 13:
+            df = df[df["class"] != "other"]
+
+        class_ids = df["class"].map(class_idx_fn)
+
+        class_freqs = class_ids.value_counts(normalize=True).sort_index().to_numpy()
+
+        assert jnp.allclose(class_freqs * weights, 1 / num_classes)

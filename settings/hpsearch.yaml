@@ -1,0 +1,69 @@
+
+split_seed: 0
+val_size: 0.2
+test_size: 0.2
+
+data_dir: data
+spectrogram_dir: leec
+labels_file: labels.csv
+
+sr: 22050
+
+spectrogram_config:
+    n_fft: 2048
+    hop_length: 256
+    win_length: 2048
+    window: hamming
+    center: False
+    pad_mode: null
+    power: 1.0
+    n_mels: 256
+    fmin: 10
+    fmax: 11025
+    htk: False
+    norm: null
+
+lower_threshold: -25
+upper_threshold: 35
+
+class_order: [ "other", "basi_culi", "myio_leuc", "vire_chiv", "cycl_guja", "pita_sulp", "zono_cape", "dend_minu", "apla_leuc", "isch_guen", "phys_cuvi", "boan_albo", "aden_marm"]
+class_order_2: ["bird", "frog"]
+
+extension: png
+
+precision: 16
+
+segment_length: 5
+
+# ===
+# Model training settings
+# ===
+
+training_seed: 0
+
+cropped_length: 3
+pad_mode: reflect
+
+num_classes: 12
+
+optim_name: sgd
+trainable_weights: all
+epochs: 100
+
+crop_type: deterministic
+cutout_alpha: null
+
+batch_size: 128
+
+save_weights: false
+early_stopping: true
+optimizing_metric: mean_val_bal_acc
+optimizing_mode: max
+give_up_after: 15
+give_up_threshold: 0.1
+
+save_log: false
+
+hpsearch_seed: 0
+hpsearch_indices: {}
+hpsearch_begin: 0

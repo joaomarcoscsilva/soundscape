@@ -1,0 +1,14 @@
+class_order:
+- Farley
+- Freid
+- Keri
+- Louie
+- Luke
+- Mac
+- Roodie
+- Rudy
+- Siggy
+- Zoe
+labels_file: dogs.csv
+num_classes: 10
+spectrogram_dir: dogs
