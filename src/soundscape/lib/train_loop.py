@@ -126,7 +126,7 @@ def get_train_epoch_fn(train_fn, epoch, logger=None):
     )
 
 
-def get_eval_epoch_fn(eval_fn, logger=None):
+def get_eval_epoch_fn(eval_fn, logger=None, prefix='eval_'):
     """
     Evaluate on a dataset.
     """
@@ -137,5 +137,5 @@ def get_eval_epoch_fn(eval_fn, logger=None):
         next_fn=eval_fn,
         batch_log_fn=None,
         desc_fn=log.running_average_desc_fn("Evaluation "),
-        epoch_log_fn=log.epoch_log_fn(logger, prefix="eval_"),
+        epoch_log_fn=log.epoch_log_fn(logger, prefix=prefix),
     )

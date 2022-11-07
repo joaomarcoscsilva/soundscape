@@ -46,7 +46,7 @@ def get_loss(settings, apply_fn):
     bal_acc_fn = loss_transforms.weighted(acc_fn, class_weights)
 
     logit_fn = lambda logits, labels: logits
-    pred_fn = lambda logits, labels: logits.argmax(axis=-1)
+    pred_fn = lambda logits, labels: (jax.nn.softmax(logits) * labels).sum(axis=-1)
     label_fn = lambda logits, labels: labels.argmax(axis=-1)
 
     # loss_fn = loss_transforms.mean_loss(loss_fn)
@@ -149,4 +149,9 @@ def train(settings, rng, train_ds, val_ds=None, model_fn=model.resnet):
         eval_out = eval_epoch(epoch_val_ds, rng, params, fixed_params, state)
         eval_log, rng, *_ = eval_out
 
+        if settings["train"]["log_train"]:
+            train_eval_epoch = train_loop.get_eval_epoch_fn(eval_fn, logger, prefix="train_")
+            train_eval_out = train_epoch(epoch_ds, rng, params, fixed_params, state)
+            train_eval_log, rng, *_ = train_eval_out
+            
         print("")
