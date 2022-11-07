@@ -19,7 +19,7 @@ def running_average_desc_fn(prefix):
 
     def desc(log_state, aux):
         log_state = {
-            k: v for k, v in log_state.items() if k not in ["predictions", "labels"]
+            k: v for k, v in log_state.items() if k not in ["predictions", "labels", "probabilities"]
         }
         log_state = utils.dict_map(at_least_one_dim, log_state)
         log_state = utils.dict_map(jnp.concatenate, log_state)
@@ -215,9 +215,11 @@ def epoch_log_fn(logger, prefix=""):
 
             preds = log_state.pop("predictions")
             labels = log_state.pop("labels")
+            probs = log_state.pop("probabilities")
 
             logger.log(prefix + "predictions", preds.tolist())
             logger.log(prefix + "labels", labels.tolist(), once=True)
+            logger.log(prefix + "probabilities", probs.tolist())
 
             logger.confusion_matrix(prefix + "labels", prefix + "predictions")
 

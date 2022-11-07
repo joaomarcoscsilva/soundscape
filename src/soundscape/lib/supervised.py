@@ -46,8 +46,9 @@ def get_loss(settings, apply_fn):
     bal_acc_fn = loss_transforms.weighted(acc_fn, class_weights)
 
     logit_fn = lambda logits, labels: logits
-    pred_fn = lambda logits, labels: (jax.nn.softmax(logits) * labels).sum(axis=-1)
+    pred_fn = lambda logits, labels: logits.argmax(axis=-1)
     label_fn = lambda logits, labels: labels.argmax(axis=-1)
+    prob_fn = lambda logits, labels: (jax.nn.softmax(logits) * labels).sum(axis=-1)
 
     # loss_fn = loss_transforms.mean_loss(loss_fn)
     # bal_loss_fn = loss_transforms.mean_loss(bal_loss_fn)
@@ -68,6 +69,7 @@ def get_loss(settings, apply_fn):
             logit_fn,
             pred_fn,
             label_fn,
+            prob_fn,
         ],
         names=[
             "main_loss",
@@ -78,6 +80,7 @@ def get_loss(settings, apply_fn):
             "logits",
             "predictions",
             "labels",
+            "probabilities",
         ],
         tag="model",
     )
@@ -117,7 +120,7 @@ def train(settings, rng, train_ds, val_ds=None, model_fn=model.resnet):
     metrics = ["loss", "balanced_loss", "accuracy", "balanced_accuracy"]
     update_fn = call_and_reap(update_fn, tag="model", allowlist=metrics)
     loss_fn = call_and_reap(
-        loss_fn, tag="model", allowlist=metrics + ["labels", "predictions"]
+        loss_fn, tag="model", allowlist=metrics + ["labels", "predictions", "probabilities"]
     )
 
     train_fn = train_loop.train_fn(settings, update_fn)
@@ -151,7 +154,7 @@ def train(settings, rng, train_ds, val_ds=None, model_fn=model.resnet):
 
         if settings["train"]["log_train"]:
             train_eval_epoch = train_loop.get_eval_epoch_fn(eval_fn, logger, prefix="train_")
-            train_eval_out = train_epoch(epoch_ds, rng, params, fixed_params, state)
+            train_eval_out = eval_epoch(epoch_ds, rng, params, fixed_params, state)
             train_eval_log, rng, *_ = train_eval_out
             
         print("")
