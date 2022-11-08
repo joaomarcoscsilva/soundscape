@@ -63,7 +63,7 @@ def eval_fn(settings, loss_fn):
             state,
             rng_batch,
             batch["spec"],
-            is_training=True,
+            is_training=False,
             labels=batch["labels"],
         )
 

@@ -153,8 +153,12 @@ def train(settings, rng, train_ds, val_ds=None, model_fn=model.resnet):
         eval_log, rng, *_ = eval_out
 
         if settings["train"]["log_train"]:
+            epoch_val_train_ds = dataset.fragment_dataset(settings, train_ds, rng_val)
+            epoch_val_train_ds = epoch_val_train_ds.batch(settings["train"]["batch_size"])
+            epoch_val_train_ds = epoch_val_train_ds.prefetch(4)
+
             train_eval_epoch = train_loop.get_eval_epoch_fn(eval_fn, logger, prefix="train_")
-            train_eval_out = train_eval_epoch(epoch_ds, rng, params, fixed_params, state)
+            train_eval_out = train_eval_epoch(epoch_val_train_ds, rng, params, fixed_params, state)
             train_eval_log, rng, *_ = train_eval_out
             
         print("")
