@@ -38,8 +38,8 @@ stages:
       md5: 60b9e6ab5bcf9e847d9a91489c9a2106
       size: 877
     - path: src/soundscape
-      md5: c113761ce867c3b8d80594cac2d431d4.dir
-      size: 157091
+      md5: 02b0a550a1d050b5aa0e79d61c2111ec.dir
+      size: 157092
       nfiles: 48
     params:
       params.yaml:
@@ -83,13 +83,13 @@ stages:
           log_train: true
     outs:
     - path: metrics.json
-      md5: 365fdbfbb97045220aff218e4a553b65
-      size: 194
+      md5: d6ff1ae2ea04f3b8fc234da1c97a1175
+      size: 192
     - path: models
-      md5: 95906cd928fc2c9dc2eccd395a551d66.dir
+      md5: 8e0b362a7c8fda05e129ec3d73b76577.dir
       size: 94361362
       nfiles: 1
     - path: plots
-      md5: 623fa2636786c146fcc8e78bd5699e82.dir
-      size: 16213977
+      md5: 4bfd8ab67ed172249f1011ec85967d0c.dir
+      size: 14876951
       nfiles: 119
