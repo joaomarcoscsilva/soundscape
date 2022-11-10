@@ -1,7 +1,7 @@
 {
-    "step": 4896,
-    "eval_accuracy": 0.8510067462921143,
-    "eval_balanced_accuracy": 0.727375328540802,
-    "eval_balanced_loss": 1.274827480316162,
-    "eval_loss": 0.8965845108032227
+    "step": 2952,
+    "eval_accuracy": 0.7865772247314453,
+    "eval_balanced_accuracy": 0.6359554529190063,
+    "eval_balanced_loss": 1.8744734525680542,
+    "eval_loss": 1.2090437412261963
 }

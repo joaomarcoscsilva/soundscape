@@ -38,7 +38,7 @@ stages:
       md5: 60b9e6ab5bcf9e847d9a91489c9a2106
       size: 877
     - path: src/soundscape
-      md5: 02b0a550a1d050b5aa0e79d61c2111ec.dir
+      md5: 85577bcd5afbad05fb82baca3c35099d.dir
       size: 157092
       nfiles: 48
     params:
@@ -76,20 +76,20 @@ stages:
         train:
           num_epochs: 100
           batch_size: 32
-          balanced: false
+          balanced: true
           learning_rate: 0.001
           partition_fn: all
           optimizing_metric: +eval_balanced_accuracy
-          log_train: true
+          log_train: false
     outs:
     - path: metrics.json
-      md5: d6ff1ae2ea04f3b8fc234da1c97a1175
-      size: 192
+      md5: ed83dcaed87acbf61791511133981554
+      size: 194
     - path: models
-      md5: 8e0b362a7c8fda05e129ec3d73b76577.dir
+      md5: fc7a411405cd52a58f40f95fceab88eb.dir
       size: 94361362
       nfiles: 1
     - path: plots
-      md5: 4bfd8ab67ed172249f1011ec85967d0c.dir
-      size: 14876951
-      nfiles: 119
+      md5: 18fbcd23b94323fab385b8f764725920.dir
+      size: 11057449
+      nfiles: 112

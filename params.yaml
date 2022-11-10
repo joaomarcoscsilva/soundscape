@@ -33,9 +33,9 @@ model:
 train:
   num_epochs: 100
   batch_size: 32
-  balanced: false
+  balanced: true
   learning_rate: 0.001
   partition_fn: all
   optimizing_metric: "+eval_balanced_accuracy"
-  log_train: true
+  log_train: false
 
