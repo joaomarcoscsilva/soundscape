@@ -63,7 +63,7 @@ def eval_fn(settings, loss_fn):
             state,
             rng_batch,
             batch["spec"],
-            is_training=False,
+            is_training=True,
             labels=batch["labels"],
         )
 
@@ -126,7 +126,7 @@ def get_train_epoch_fn(train_fn, epoch, logger=None):
     )
 
 
-def get_eval_epoch_fn(eval_fn, logger=None, prefix='eval_'):
+def get_eval_epoch_fn(eval_fn, logger=None, prefix="eval_"):
     """
     Evaluate on a dataset.
     """

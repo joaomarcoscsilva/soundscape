@@ -5,3 +5,4 @@
 .coveragerc
 /models
 **/__pycache__
+*.pyc
