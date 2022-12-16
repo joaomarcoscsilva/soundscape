@@ -15,13 +15,13 @@ def class_is_bird(species):
     return species in constants.BIRD_CLASSES
 
 
-def process_txt_file(txts_path, wavs_path, wav_files, period, filename):
+def process_txt_file(txts_path, wavs_path, wav_files, period, file):
     """
     Takes a path to a .txt labels file and returns a pandas dataframe.
     """
 
     # Reads the .txt file
-    df = pd.read_csv(os.path.join(txts_path, period, filename), sep="\t")
+    df = pd.read_csv(os.path.join(txts_path, period, file), sep="\t")
 
     # Drops the columns that are not needed
     df = df.drop(columns=["Selection", "View", "Channel"])
@@ -33,13 +33,13 @@ def process_txt_file(txts_path, wavs_path, wav_files, period, filename):
     # Creates a column to indicate whether a species is part of the pre-selected classes
     df["selected"] = isBird | isFrog
 
-    df["file"] = filename.replace(".txt", ".wav")
+    df["file"] = file.replace(".txt", ".wav")
 
     df["file"] = os.path.join(
         wavs_path,
         "selected" if df["selected"].any() else "unselected",
         period,
-        filename.replace(".txt", ".wav"),
+        file.replace(".txt", ".wav"),
     )
 
     df["period"] = period

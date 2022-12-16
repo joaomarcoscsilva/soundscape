@@ -56,7 +56,7 @@ def add_rng(ds, rng):
     rngs = tf.constant(rngs)
 
     def add_rng(args):
-        return {"rng": rngs[args["index"]], **args}
+        return {"rng": rngs[args["file_index"]], **args}
 
     return ds.map(add_rng)
 
@@ -71,10 +71,11 @@ def fragment_dataset(settings, ds, rng, frag_key="spec"):
     ds = add_rng(ds, rng)
 
     input_keys = {
-        "filename",
+        "file",
         "labels",
         "num_events",
-        "index",
+        "file_index",
+        "fragment_indices",
         "frag_intervals",
         "freq_intervals",
         "time_intervals",
@@ -83,10 +84,11 @@ def fragment_dataset(settings, ds, rng, frag_key="spec"):
     }
 
     output_types = {
-        "filename": tf.string,
+        "file": tf.string,
         "labels": tf.int32,
         "num_events": tf.int32,
-        "index": tf.int32,
+        "file_index": tf.int32,
+        "fragment_indices": tf.int32,
         "frag_intervals": tf.float32,
         "freq_intervals": tf.float32,
         "time_intervals": tf.float32,

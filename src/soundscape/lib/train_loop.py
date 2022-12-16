@@ -8,7 +8,6 @@ from dvclive import Live
 from ..data import dataset, dataset_functions as dsfn
 from . import utils, log
 
-
 def append_fn(state, new_aux):
     """
     Append the new values in new_aux to state
@@ -66,6 +65,8 @@ def eval_fn(settings, loss_fn):
             is_training=True,
             labels=batch["labels"],
         )
+
+        aux["indices"] = batch['fragment_indices']
 
         return (rng, params, fixed_params, state), aux
 

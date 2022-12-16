@@ -63,9 +63,9 @@ def read_df(settings):
     Read the dataframe containing the labelled events.
     """
 
-    def _read_df(filename):
+    def _read_df(file):
         # Reads the csv file and selects only the desired rows
-        df = pd.read_csv(os.path.join(settings["data"]["data_dir"], filename))
+        df = pd.read_csv(os.path.join(settings["data"]["data_dir"], file))
         df = df[df["exists"]]
 
         if settings["data"]["num_classes"] != 13:
@@ -75,9 +75,6 @@ def read_df(settings):
         df.loc[:, ["begin_time", "end_time", "low_freq", "high_freq"]] = df[
             ["begin_time", "end_time", "low_freq", "high_freq"]
         ].astype(np.float32)
-
-        # Sorts by begin_time
-        df = df.sort_values(by="begin_time")
 
         return df
 
@@ -93,26 +90,27 @@ def get_labels(settings):
         - E = maximum number of events in a labelled audio file
 
     Returns a dict with the following keys:
-        - "filename": list of strings of shape (N)
+        - "file": list of strings of shape (N)
         - "time_intervals": tensor of shape (N, E, 2) containing the start and end times of each event
         - "freq_intervals": tensor of shape (N, E, 2) containing the start and end frequencies of each event
         - "labels": integer tensor of shape (N, E) containing the label of each event (out of the 12 selected classes)
         - "num_events": integer tensor of shape (N) containing the number of events in each audio file
-        - "index": integer tensor of shape (N) containing the index of each element in the dataset
+        - "file_index": integer tensor of shape (N) containing the index of each element's file in the dataset
+        - "fragment_indices": integer tensor of shape (N, E) containing the index of each event in the dataset
     """
 
     _read_df = read_df(settings)
 
     @cache
-    def _get_labels(filename):
+    def _get_labels(file):
 
-        df = _read_df(filename)
+        df = _read_df(file)
 
         # Groups by each sound file
         df = df.groupby("file")
 
-        # List of filenames
-        filenames = list(df.groups.keys())
+        # List of files
+        files = list(df.groups.keys())
 
         # List of time intervals
         time_intervals = np.stack(
@@ -151,15 +149,18 @@ def get_labels(settings):
             .values
         ).astype(np.int32)
 
-        indexes = np.arange(len(filenames), dtype=np.int32)
+        file_indices = np.arange(len(files), dtype=np.int32)
+        
+        fragment_indices = np.stack(df.index.apply(stack).apply(get_pad_fn(-1)).values).astype(np.int32)
 
         return {
-            "filename": filenames,
+            "file": files,
             "time_intervals": time_intervals,
             "freq_intervals": freq_intervals,
             "labels": labels,
             "num_events": num_events,
-            "index": indexes,
+            "file_index": file_indices,
+            "fragment_indices": fragment_indices,
         }
 
     return _get_labels
@@ -203,7 +204,7 @@ def extract_waveform(settings):
     def _extract_waveform(args):
         wav = tf.io.read_file(
             tf.strings.join(
-                [settings["data"]["data_dir"], args["filename"]], separator="/"
+                [settings["data"]["data_dir"], args["file"]], separator="/"
             )
         )
         wav, sr = tf.audio.decode_wav(wav)
@@ -220,7 +221,7 @@ def load_spectrogram(settings):
     """
 
     def _load_spectrogram(args):
-        filepath = args["filename"]
+        filepath = args["file"]
         filepath = tf.strings.regex_replace(filepath, ".wav$", ".png")
         filepath = tf.strings.regex_replace(filepath, "wavs/", "specs/")
         filepath = tf.strings.join(

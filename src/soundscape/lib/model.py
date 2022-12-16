@@ -5,9 +5,9 @@ from oryx.core import sow
 import jax_resnet
 from flax import linen as nn
 import flax
+from collections import namedtuple
 
 from . import sow_transforms
-
 
 def partition(apply_fn, partition_fn, params):
     """

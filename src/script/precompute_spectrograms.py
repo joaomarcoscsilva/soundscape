@@ -14,14 +14,14 @@ if __name__ == "__main__":
     for d in tqdm(ds):
 
         # Finds the name of the image to be saved
-        filename = (
-            d["filename"].numpy().decode().replace(".wav", ".png").replace("wavs/", "")
+        file = (
+            d["file"].numpy().decode().replace(".wav", ".png").replace("wavs/", "")
         )
-        filename = os.path.join(settings["data"]["data_dir"], "specs", filename)
+        file = os.path.join(settings["data"]["data_dir"], "specs", file)
 
         # Creates the necessary directories if they don't exist
-        if not os.path.exists(os.path.dirname(filename)):
-            os.makedirs(os.path.dirname(filename))
+        if not os.path.exists(os.path.dirname(file)):
+            os.makedirs(os.path.dirname(file))
 
         # Saves the image
-        imageio.imwrite(filename, d["spec"].numpy())
+        imageio.imwrite(file, d["spec"].numpy())

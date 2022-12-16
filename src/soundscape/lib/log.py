@@ -19,7 +19,7 @@ def running_average_desc_fn(prefix):
 
     def desc(log_state, aux):
         log_state = {
-            k: v for k, v in log_state.items() if k not in ["predictions", "labels", "probabilities"]
+            k: v for k, v in log_state.items() if k not in ["predictions", "labels", "probabilities", "indices"]
         }
         log_state = utils.dict_map(at_least_one_dim, log_state)
         log_state = utils.dict_map(jnp.concatenate, log_state)
@@ -100,7 +100,7 @@ class Logger:
 
         if confusion_labels_key is not None and confusion_preds_key is not None:
             self.confusion_matrix(
-                "eval_labels", "eval_predictions", filename="plots/best_confusion.png"
+                "eval_labels", "eval_predictions", file="plots/best_confusion.png"
             )
 
     def step(self):
@@ -133,7 +133,7 @@ class Logger:
         if self.is_best():
             self.consolidate(to_pickle, confusion_labels_key, confusion_preds_key)
 
-    def confusion_matrix(self, labels_key, preds_key, filename=None):
+    def confusion_matrix(self, labels_key, preds_key, file=None):
         """
         Plot a confusion matrix using the latest saved versions of labels_key and preds_key.
         """
@@ -157,10 +157,11 @@ class Logger:
         plt.xlabel("Predicted")
         plt.ylabel("True")
 
-        if filename is None:
-            filename = f"plots/confusion/{self._step}.png"
+        if file is None:
+            file = f"plots/confusion/{self._step}.png"
 
-        plt.savefig(filename)
+        plt.savefig(file)
+        plt.close()
 
     def __del__(self):
         """
@@ -216,10 +217,12 @@ def epoch_log_fn(logger, prefix=""):
             preds = log_state.pop("predictions")
             labels = log_state.pop("labels")
             probs = log_state.pop("probabilities")
+            indices = log_state.pop("indices")
 
             logger.log(prefix + "predictions", preds.tolist())
             logger.log(prefix + "labels", labels.tolist(), once=True)
             logger.log(prefix + "probabilities", probs.tolist())
+            logger.log(prefix + "indices", indices.tolist(), once=True)
 
             logger.confusion_matrix(prefix + "labels", prefix + "predictions")
 
