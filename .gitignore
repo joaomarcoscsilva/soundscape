@@ -1,7 +1,9 @@
-*/.gitignore
+.gitignore
 .vscode
 *.R
 .coverage
 .coveragerc
-/models
-**/__pycache__
+models
+__pycache__
+.ipynb_checkpoints
+Untitled*
