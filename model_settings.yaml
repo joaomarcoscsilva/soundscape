@@ -1,0 +1,5 @@
+model_name: resnet_18
+initialization: imagenet
+num_classes: 12
+trainable_weights: all
+epochs: 100
