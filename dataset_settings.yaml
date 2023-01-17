@@ -1,4 +1,5 @@
 data_dir: data
+labels_file: labels.csv
 spectrogram_dir: leec
 
 precision: 16

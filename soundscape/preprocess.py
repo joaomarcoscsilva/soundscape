@@ -8,7 +8,7 @@ from jax import random
 import multiprocessing
 import soundfile
 
-from . import settings
+from soundscape import settings
 
 settings_fn, settings_dict = settings.from_file("data_settings.yaml")
 
@@ -145,7 +145,7 @@ def save_event(
     os.makedirs(os.path.dirname(filename), exist_ok=True)
 
     soundfile.write(filename + ".wav", audio, sr)
-    # imageio.imwrite(filename + ".png", spectrogram)
+    imageio.imwrite(filename + ".png", spectrogram)
 
 
 def extract_spectrograms_from_file(df_file):
@@ -159,12 +159,11 @@ def extract_spectrograms_from_file(df_file):
     # For each event in the file, crop the audio and compute the spectrogram
     for row in df_file[1].iloc:
         cropped_audio = crop_audio_event(audio, row["begin_time"], row["end_time"])
-        # spectrogram = melspectrogram(cropped_audio)
-        # spectrogram = process_melspectrogram(spectrogram)
+        spectrogram = melspectrogram(cropped_audio)
+        spectrogram = process_melspectrogram(spectrogram)
 
         # Save the spectrogram to disk
-        # save_event(cropped_audio, spectrogram, row["split"], row["class"], row.name)
-        save_event(cropped_audio, None, row["split"], row["class"], row.name)
+        save_event(cropped_audio, spectrogram, row["split"], row["class"], row.name)
 
 
 @settings_fn
