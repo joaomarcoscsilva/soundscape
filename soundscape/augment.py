@@ -2,6 +2,7 @@ from jax import numpy as jnp
 import jax
 from typing import Protocol, Union
 from jax import random
+from functools import partial
 
 from . import settings
 from .composition import Composable
@@ -9,29 +10,7 @@ from .composition import Composable
 settings_fn, settings_dict = settings.from_file("dataset_settings.yaml")
 
 
-class Augmentation(Protocol):
-    def __call__(self, rngs: jax.random.PRNGKey, xs: jnp.ndarray) -> jnp.ndarray:
-        ...
-
-
-def augment_batch(augment_fns: Union[list[Augmentation], Augmentation]) -> Composable:
-    if not isinstance(augment_fns, list):
-        augment_fns = [augment_fns]
-
-    @Composable
-    def _augment(values):
-        xs = values["inputs"]
-        rngs = values["rng"]
-
-        rngs = random.split(rngs)
-        rngs, augment_rngs = rngs[:, 0], rngs[:, 1:]
-
-        for augment_fn in augment_fns:
-            xs = augment_fn(augment_rngs, xs)
-
-        return {**values, "inputs": xs, "rng": rngs}
-
-    return _augment
+batch_split = jax.vmap(lambda rng, n: tuple(random.split(rng, n)), in_axes=(0, None))
 
 
 def crop_time_array(array, duration, begin_time, end_time, axis=1):
@@ -44,38 +23,41 @@ def crop_time_array(array, duration, begin_time, end_time, axis=1):
 def deterministic_time_crop(*, segment_length, cropped_length, extension):
     axis = 2 if extension == "png" else 1
 
-    def _deterministic_time_crop(rng, xs):
+    def _deterministic_time_crop(values):
         begin_time = (segment_length - cropped_length) / 2
         end_time = begin_time + cropped_length
-        return crop_time_array(xs, segment_length, begin_time, end_time, axis)
+
+        new_inputs = crop_time_array(
+            values["inputs"], segment_length, begin_time, end_time, axis=axis
+        )
+
+        return {**values, "inputs": new_inputs}
 
     return _deterministic_time_crop
 
 
 @settings_fn
-def random_time_crop(*, segment_length, cropped_length):
-    def _random_time_crop(rng, xs):
-        begin_time = random.uniform(rng, (0, segment_length - cropped_length))
+def random_time_crop(*, segment_length, cropped_length, extension):
+    axis = 2 if extension == "png" else 1
+
+    def _random_time_crop(values):
+        rngs, _rngs = batch_split(values["rngs"])
+        begin_time = random.uniform(_rngs, (0, segment_length - cropped_length))
         end_time = begin_time + cropped_length
-        return crop_time_array(xs, segment_length, begin_time, end_time)
+
+        new_inputs = crop_time_array(
+            values["inputs"], segment_length, begin_time, end_time, axis=axis
+        )
+
+        return {**values, "inputs": new_inputs, "rngs": rngs}
 
     return _random_time_crop
 
 
-def all_possible_augmentations(augment_fns: list[Augmentation]) -> Augmentation:
-    def _augment(rng, x):
-        rngs = jax.random.split(rng, len(augment_fns))
-        return jnp.array([augment(_rng, x) for augment, _rng in zip(augment_fns, rngs)])
-
-    return _augment
-
-
 def augmix(possible_augmentation_fns, depth, width, dirichlet_alpha):
-    """ """
-
-    def augment_once(rng, x):
-        d = jax.random.randint(rng, (1,), 0, depth)
-        rngs = jax.random.split(rng, d)
+    def augment(rng, x):
+        _depth = jax.random.randint(rng, (1,), 0, depth)
+        rngs = jax.random.split(rng, _depth)
 
         for rng in rngs:
             rng_fn, rng_aug = jax.random.split(rng)
@@ -88,8 +70,124 @@ def augmix(possible_augmentation_fns, depth, width, dirichlet_alpha):
         mixing_weights = jax.random.dirichlet(rng, (dirichlet_alpha,) * len(xs))
         return (xs * mixing_weights).sum(axis=0)
 
-    def _augment(rng, x):
-        rngs = jax.random.split(rng, width + 1)
-        return mix(rngs[0], jnp.array([augment_once(rng, x) for rng in rngs[1:]]))
+    def augment_and_mix(rng, x):
+        rng_mix, rng_augment = jax.random.split(rng, width + 1)
+        xs = jnp.array([augment(rng_augment, x) for _ in range(width)])
+        return mix(rng_mix, xs)
 
-    return _augment
+    def _augmix(values):
+        rngs, _rngs1, _rngs2 = batch_split(values["rngs"], 3)
+
+        xs = values["inputs"]
+
+        new_xs_1 = [augment(rng, x) for rng, x in zip(_rngs1, xs)]
+        new_xs_1 = jnp.stack(new_xs_1)
+
+        new_xs_2 = [augment_and_mix(rng, x) for rng, x in zip(_rngs2, xs)]
+        new_xs_2 = jnp.stack(new_xs_2)
+
+        return {
+            **values,
+            "inputs": jnp.concatenate([xs, new_xs_1, new_xs_2], axis=0),
+            "rngs": rngs,
+        }
+
+    return _augmix
+
+
+@partial(jax.vmap, in_axes=(0, None, 0))
+def rectangular_mask(rng, image_shape, ratio):
+    rng, rng_row, rng_col = jax.random.split(rng, 3)
+
+    mask_shape = jnp.array([image_shape[0] * ratio, image_shape[1] * ratio])
+
+    row_begin = jax.random.randint(rng_row, (1,), 0, image_shape[0] - mask_shape[0])
+    col_begin = jax.random.randint(rng_col, (1,), 0, image_shape[1] - mask_shape[1])
+
+    row_end = row_begin + mask_shape[0]
+    col_end = col_begin + mask_shape[1]
+
+    img_rows, img_cols = jnp.meshgrid(
+        jnp.arange(image_shape[0]), jnp.arange(image_shape[1])
+    )
+
+    img_rows = jnp.logical_and(img_rows >= row_begin, img_rows < row_end)
+    img_cols = jnp.logical_and(img_cols >= col_begin, img_cols < col_end)
+
+    img = jnp.float32(jnp.logical_and(img_rows, img_cols))
+
+    return img
+
+
+def cutout(beta_params, mask_fn=rectangular_mask):
+    @Composable
+    def _cutout(values):
+        rngs = values["rngs"]
+        xs = values["inputs"]
+
+        rngs, rngs_ratios, rngs_mask = batch_split(rngs, 3)
+
+        ratios = jax.vmap(jax.random.beta, in_axes=(0, None, None))(
+            rngs_ratios, *beta_params
+        )
+
+        masks = mask_fn(rngs_mask, xs.shape[1:3], ratios)
+
+        xs = xs * masks[..., None]
+
+        return {**values, "inputs": xs, "rngs": rngs}
+
+    return _cutout
+
+
+def mixup(beta_params):
+    @Composable
+    def _mixup(values):
+        rngs = values["rngs"]
+        xs = values["inputs"]
+        ys = values["labels"]
+
+        rngs, rngs_ratios, rngs_permutation = batch_split(rngs, 3)
+
+        ratios = jax.vmap(jax.random.beta, in_axes=(0, None, None))(
+            rngs_ratios, *beta_params
+        )
+
+        idx = jax.random.permutation(rngs_permutation[0], jnp.arange(len(xs)))
+        xs2 = xs[idx]
+        ys2 = ys[idx]
+
+        xs = xs2 * ratios[..., None, None, None] + xs * (
+            1 - ratios[..., None, None, None]
+        )
+        ys = ys2 * ratios[..., None] + ys * (1 - ratios[..., None])
+
+        return {**values, "inputs": xs, "labels": ys, "rngs": rngs}
+
+    return _mixup
+
+
+def cutmix(beta_params, mask_fn=rectangular_mask):
+    @Composable
+    def _cutmix(values):
+        rngs = values["rngs"]
+        xs = values["inputs"]
+        ys = values["labels"]
+
+        rngs, rngs_ratios, rngs_mask, rngs_permutation = batch_split(rngs, 4)
+
+        ratios = jax.vmap(jax.random.beta, in_axes=(0, None, None))(
+            rngs_ratios, *beta_params
+        )
+        masks = mask_fn(rngs_mask, xs.shape[1:3], ratios)
+
+        idx = jax.random.permutation(rngs_permutation[0], jnp.arange(len(xs)))
+        xs2 = xs[idx]
+        ys2 = ys[idx]
+
+        xs = xs2 * masks[..., None] + xs * (1 - masks[..., None])
+        ys = ys2 * ratios[..., None] + ys * (1 - ratios[..., None])
+
+        return {**values, "inputs": xs, "labels": ys, "rngs": rngs}
+
+    return _cutmix

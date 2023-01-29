@@ -47,7 +47,7 @@ def augmix_loss(loss_fn: SimpleFunction, num_repetitions=3, l=1.0) -> Composable
 
 
 def accuracy(values):
-    return (values["preds"] == values["labels"].argmax(axis=-1)).mean()
+    return jnp.float32(values["preds"] == values["labels"].argmax(axis=-1))
 
 
 def weighted(metric_function: SimpleFunction, class_weights=None) -> SimpleFunction:

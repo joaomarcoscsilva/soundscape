@@ -1,32 +1,37 @@
 from .composition import Composable
 from tqdm import tqdm
+from jax import numpy as jnp
 
 
-def track_over_epoch(keys):
+def track(keys):
     @Composable
-    def _track_over_epoch(values):
+    def _track(values):
 
-        if "epoch_stats" not in values:
-            values["epoch_stats"] = {}
-            for k in keys:
-                values["epoch_stats"][k] = []
+        if "logs" in values:
+            old_logs = values["logs"]
+            to_log = {key: values[key] for key in keys}
+            new_logs = {
+                key: jnp.concatenate([old_logs[key], to_log[key]]) for key in keys
+            }
 
-        for k in keys:
-            values["epoch_stats"][k].append(values[k])
+        else:
+            new_logs = {key: values[key] for key in keys}
 
-        return values
+        return {**values, "logs": new_logs}
 
-    return _track_over_epoch
+    return _track
 
 
-def update_tqdm_bar(keys, length):
+def log_tqdm(keys, num_steps):
     @Composable
-    def _update_tqdm_bar(values):
-        if "tqdm_bar" not in values:
-            values["tqdm_bar"] = tqdm(total=length)
+    def _log_tqdm(values):
+        bar = values["tqdm"] if "tqdm" in values else tqdm(num_steps)
 
-        values["tqdm_bar"].set_postfix({k: values[k] for k in keys})
+        tqdm_str = ", ".join([f'{k}: {values["logs"][k].mean(0):.3f}' for k in keys])
 
-        return values
+        bar.set_description(tqdm_str)
+        bar.update()
 
-    return _update_tqdm_bar
+        return {**values, "tqdm": bar}
+
+    return _log_tqdm

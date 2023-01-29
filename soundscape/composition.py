@@ -74,7 +74,3 @@ def grad(
         return {**new_values, "grad": grad}
 
     return _grad_function
-
-
-def split_on_keys(keys):
-    return lambda values: split_dict(values, keys)

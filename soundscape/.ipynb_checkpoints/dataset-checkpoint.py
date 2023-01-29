@@ -1,8 +1,8 @@
 import tensorflow as tf
-import jax
-import pandas as pd
+import imageio
 import numpy as np
 from jax import random, numpy as jnp
+import jax
 import os
 from glob import glob
 
@@ -26,6 +26,12 @@ def read_image_file_tf(path, *, precision):
 
 
 @settings_fn
+def read_image_pt(image_path, *, precision):
+    dtype = np.uint16 if precision == 16 else np.uint8
+    return imageio.imread(image_path).astype(dtype)
+
+
+@settings_fn
 def get_classes(*, class_order, class_order_2, num_classes):
     """
     Return a list with class names and a function that maps a class name to its id
@@ -42,7 +48,7 @@ def get_classes(*, class_order, class_order_2, num_classes):
 
     if num_classes == 2:
         classes.remove("other")
-        return class_order_2, lambda x: int(classes.index(x) >= 6)
+        return class_order_2, lambda x: int(classes.index(x) < 6)
 
     raise ValueError("Invalid number of classes")
 
@@ -66,8 +72,6 @@ def get_dataset(
     if num_classes != 13:
         classes.remove("other")
 
-    class_to_id = get_classes()[1]
-
     ds = {
         "file": [],
         "labels": [],
@@ -79,7 +83,7 @@ def get_dataset(
         files = glob(os.path.join(dataset_dir, cls, f"*.{extension}"))
         for f in sorted(files):
             ds["file"].append(f)
-            ds["labels"].append(class_to_id(cls))
+            ds["labels"].append(cls)
             ds["id"].append(int(os.path.basename(f).split(".")[0]))
 
             rng, _rng = random.split(rng)
@@ -120,10 +124,8 @@ def tf2jax(values):
 @settings_fn
 def prepare_image(values, *, precision):
     image = values["inputs"]
-    # image = tf.cast(image, tf.float32) / (2**precision)
-    # image = tf.repeat(image, 3, axis=-1)
-    image = jnp.float32(image) / (2**precision)
-    image = jnp.repeat(image, 3, axis=-1)
+    image = image.astype(jnp.float32) / (2**precision)
+    image = image
     return {**values, "inputs": image}
 
 
@@ -132,7 +134,6 @@ def downsample_image(values):
     image = values["inputs"]
     shape = (image.shape[0], 224, 224, image.shape[-1])
     image = jax.image.resize(image, shape, method="bicubic")
-    # image = tf.image.resize(image, shape[1:3], method="bicubic")
     return {**values, "inputs": image}
 
 
@@ -142,8 +143,6 @@ def prepare_image_channels(values, *, channel_mean, channel_std):
     image = values["inputs"]
     image = image - jnp.array(channel_mean)[None, None, None, :]
     image = image / jnp.array(channel_std)[None, None, None, :]
-    # image = image - tf.constant(channel_mean)[None, None, None, :]
-    # image = image / tf.constant(channel_std)[None, None, None, :]
     return {**values, "inputs": image}
 
 
@@ -153,31 +152,10 @@ def one_hot_encode(values):
     Convert a class name to a one-hot encoded vector
     """
 
-    classes, class_to_id = get_classes()
+    class_names, class_to_id = get_classes()
 
     labels = values["labels"]
-    labels = jax.nn.one_hot(labels, len(classes))
-
-    # labels = tf.one_hot(labels, len(class_names))
+    labels = jnp.array([class_to_id(l.decode()) for l in labels])
+    labels = jax.nn.one_hot(labels, len(class_names))
 
     return {**values, "labels": labels}
-
-
-@settings_fn
-def get_class_weights(*, data_dir, labels_file, num_classes):
-    df = pd.read_csv(os.path.join(data_dir, labels_file))
-
-    df = df[df["exists"]]
-    if num_classes != 13:
-        df = df[df["selected"]]
-
-    classes, class_to_id = get_classes()
-    df_classes = df["class"].map(class_to_id)
-    weights = df_classes.value_counts(True)
-    weights = weights.sort_index()
-
-    weights = weights.to_numpy()
-
-    weights = 1 / (weights * num_classes)
-
-    return weights
