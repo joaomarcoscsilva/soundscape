@@ -44,17 +44,22 @@ def split_dict(values, keys):
     return d1, d2
 
 
-def jit(function: ComposableFunction, static_keys, ignored_keys) -> ComposableFunction:
+def jit(
+    function: ComposableFunction, static_keys=[], ignored_keys=[]
+) -> ComposableFunction:
     def jittable_function(values, static_values):
         return function({**values, **static_values})
 
+    jitted_function = jax.jit(jittable_function, static_argnums=1)
+
     @Composable
     def _function(values):
+        _ignored_keys = ignored_keys + [k for k in values.keys() if k[0] == "_"]
+
         values, static_values = split_dict(values, static_keys)
-        values, ignored_values = split_dict(values, ignored_keys)
-        values = jax.jit(jittable_function, static_argnums=1)(
-            values, hashable_dict(static_values)
-        )
+        values, ignored_values = split_dict(values, _ignored_keys)
+
+        values = jitted_function(values, hashable_dict(static_values))
         return {**values, **ignored_values, **static_values}
 
     return _function

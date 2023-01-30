@@ -49,7 +49,14 @@ def resnet(rng, *, model_name, initialization, num_classes, trainable_weights):
         variables = ResNet().init(rng, jnp.zeros((1, 224, 224, 3)))
 
     classifier = nn.Dense(num_classes, name="logits")
-    classifier_params = classifier.init(rng, jnp.zeros((1, 512)))
+
+    num_layer_groups = len(variables["params"].keys())
+    last_layer_group = variables["params"][f"layers_{num_layer_groups}"]
+    num_layer_blocks = len(last_layer_group.keys())
+    last_layer_block = last_layer_group[f"ConvBlock_{num_layer_blocks-1 }"]
+    last_layer_shape = last_layer_block["Conv_0"]["kernel"].shape
+
+    classifier_params = classifier.init(rng, jnp.zeros((1, last_layer_shape[-1])))
 
     variables = flax.core.unfreeze(variables)
     variables["params"]["logits"] = classifier_params["params"]

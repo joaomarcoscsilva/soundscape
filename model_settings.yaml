@@ -1,4 +1,4 @@
-model_name: resnet_18
+model_name: resnet_50
 initialization: imagenet
 num_classes: 12
 trainable_weights: all
