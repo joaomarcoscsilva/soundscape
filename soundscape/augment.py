@@ -5,9 +5,9 @@ from jax import random
 from functools import partial
 
 from . import settings
-from .composition import Composable
+from .composition import Composable, identity
 
-settings_fn, settings_dict = settings.from_file("dataset_settings.yaml")
+settings_fn, settings_dict = settings.from_file()
 
 
 batch_split = jax.vmap(lambda rng, n: tuple(random.split(rng, n)), in_axes=(0, None))
@@ -20,7 +20,7 @@ def crop_time_array(array, duration, begin_time, end_time, axis=1):
 
 
 @settings_fn
-def deterministic_time_crop(*, segment_length, cropped_length, extension):
+def time_crop(*, segment_length, cropped_length, extension, crop_type="deterministic"):
     axis = 2 if extension == "png" else 1
 
     def _deterministic_time_crop(values):
@@ -33,13 +33,6 @@ def deterministic_time_crop(*, segment_length, cropped_length, extension):
 
         return {**values, "inputs": new_inputs}
 
-    return _deterministic_time_crop
-
-
-@settings_fn
-def random_time_crop(*, segment_length, cropped_length, extension):
-    axis = 2 if extension == "png" else 1
-
     def _random_time_crop(values):
         rngs, _rngs = batch_split(values["rngs"])
         begin_time = random.uniform(_rngs, (0, segment_length - cropped_length))
@@ -51,7 +44,12 @@ def random_time_crop(*, segment_length, cropped_length, extension):
 
         return {**values, "inputs": new_inputs, "rngs": rngs}
 
-    return _random_time_crop
+    if crop_type == "deterministic":
+        return _deterministic_time_crop
+    elif crop_type == "random":
+        return _random_time_crop
+    else:
+        return identity
 
 
 def augmix(possible_augmentation_fns, depth, width, dirichlet_alpha):
@@ -108,7 +106,7 @@ def rectangular_mask(rng, image_shape, ratio):
     col_end = col_begin + mask_shape[1]
 
     img_rows, img_cols = jnp.meshgrid(
-        jnp.arange(image_shape[0]), jnp.arange(image_shape[1])
+        jnp.arange(image_shape[1]), jnp.arange(image_shape[0])
     )
 
     img_rows = jnp.logical_and(img_rows >= row_begin, img_rows < row_end)
@@ -119,7 +117,14 @@ def rectangular_mask(rng, image_shape, ratio):
     return img
 
 
-def cutout(beta_params, mask_fn=rectangular_mask):
+def cutout(beta_params=[1.0, 1.0], mask_fn=rectangular_mask):
+    if beta_params is None:
+        return identity
+    if type(beta_params) is not list:
+        beta_params = [beta_params, beta_params]
+
+    beta_params = jnp.array(beta_params, dtype=jnp.float32)
+
     @Composable
     def _cutout(values):
         rngs = values["rngs"]
@@ -140,12 +145,19 @@ def cutout(beta_params, mask_fn=rectangular_mask):
     return _cutout
 
 
-def mixup(beta_params):
+def mixup(beta_params=[1.0, 1.0]):
+    if beta_params is None:
+        return identity
+    if type(beta_params) is not list:
+        beta_params = [beta_params, beta_params]
+
+    beta_params = jnp.array(beta_params, dtype=jnp.float32)
+
     @Composable
     def _mixup(values):
         rngs = values["rngs"]
         xs = values["inputs"]
-        ys = values["labels"]
+        ys = values["one_hot_labels"]
 
         rngs, rngs_ratios, rngs_permutation = batch_split(rngs, 3)
 
@@ -162,17 +174,24 @@ def mixup(beta_params):
         )
         ys = ys2 * ratios[..., None] + ys * (1 - ratios[..., None])
 
-        return {**values, "inputs": xs, "labels": ys, "rngs": rngs}
+        return {**values, "inputs": xs, "one_hot_labels": ys, "rngs": rngs}
 
     return _mixup
 
 
-def cutmix(beta_params, mask_fn=rectangular_mask):
+def cutmix(beta_params=[1.0, 1.0], mask_fn=rectangular_mask):
+    if beta_params is None:
+        return identity
+    if type(beta_params) is not list:
+        beta_params = [beta_params, beta_params]
+
+    beta_params = jnp.array(beta_params, dtype=jnp.float32)
+
     @Composable
     def _cutmix(values):
         rngs = values["rngs"]
         xs = values["inputs"]
-        ys = values["labels"]
+        ys = values["one_hot_labels"]
 
         rngs, rngs_ratios, rngs_mask, rngs_permutation = batch_split(rngs, 4)
 
@@ -185,9 +204,11 @@ def cutmix(beta_params, mask_fn=rectangular_mask):
         xs2 = xs[idx]
         ys2 = ys[idx]
 
+        # breakpoint()
+
         xs = xs2 * masks[..., None] + xs * (1 - masks[..., None])
         ys = ys2 * ratios[..., None] + ys * (1 - ratios[..., None])
 
-        return {**values, "inputs": xs, "labels": ys, "rngs": rngs}
+        return {**values, "inputs": xs, "one_hot_labels": ys, "rngs": rngs}
 
     return _cutmix

@@ -9,7 +9,7 @@ from glob import glob
 from . import settings
 from .composition import Composable
 
-settings_fn, settings_dict = settings.from_file("dataset_settings.yaml")
+settings_fn, settings_dict = settings.from_file()
 
 
 @settings_fn
@@ -69,23 +69,23 @@ def get_dataset(
     class_to_id = get_classes()[1]
 
     ds = {
-        "file": [],
+        "_file": [],
         "labels": [],
         "id": [],
-        "rng": [],
+        "rngs": [],
     }
 
     for cls in classes:
         files = glob(os.path.join(dataset_dir, cls, f"*.{extension}"))
         for f in sorted(files):
-            ds["file"].append(f)
+            ds["_file"].append(f)
             ds["labels"].append(class_to_id(cls))
             ds["id"].append(int(os.path.basename(f).split(".")[0]))
 
             rng, _rng = random.split(rng)
-            ds["rng"].append(_rng)
+            ds["rngs"].append(_rng)
 
-    idx = random.permutation(rng, len(ds["file"]))
+    idx = random.permutation(rng, len(ds["_file"]))
     ds = {k: np.array(v)[idx] for k, v in ds.items()}
 
     return ds
@@ -96,7 +96,7 @@ def get_tensorflow_dataset(split, rng, *, extension):
     ds_dict = get_dataset(split, rng)
     ds = tf.data.Dataset.from_tensor_slices(ds_dict)
     read_fn = read_image_file_tf if extension == "png" else read_audio_file_tf
-    ds = ds.map(lambda x: {"inputs": read_fn(x["file"]), **x})
+    ds = ds.map(lambda x: {"inputs": read_fn(x["_file"]), **x})
     ds = ds.cache()
     return ds
 
@@ -137,17 +137,6 @@ def downsample_image(values):
 
 
 @Composable
-@settings_fn
-def prepare_image_channels(values, *, channel_mean, channel_std):
-    image = values["inputs"]
-    image = image - jnp.array(channel_mean)[None, None, None, :]
-    image = image / jnp.array(channel_std)[None, None, None, :]
-    # image = image - tf.constant(channel_mean)[None, None, None, :]
-    # image = image / tf.constant(channel_std)[None, None, None, :]
-    return {**values, "inputs": image}
-
-
-@Composable
 def one_hot_encode(values):
     """
     Convert a class name to a one-hot encoded vector
@@ -160,7 +149,7 @@ def one_hot_encode(values):
 
     # labels = tf.one_hot(labels, len(class_names))
 
-    return {**values, "labels": labels}
+    return {**values, "one_hot_labels": labels}
 
 
 @settings_fn
@@ -180,4 +169,45 @@ def get_class_weights(*, data_dir, labels_file, num_classes):
 
     weights = 1 / (weights * num_classes)
 
-    return weights
+    return jnp.array(weights)
+
+
+@Composable
+@settings_fn
+def prepare_image_tf(values, *, precision):
+    image = values["inputs"]
+    image = tf.cast(image, tf.float32) / (2**precision)
+    image = tf.repeat(image, 3, axis=-1)
+    return {**values, "inputs": image}
+
+
+@Composable
+def downsample_image_tf(values):
+    image = values["inputs"]
+    shape = (image.shape[0], 224, 224, image.shape[-1])
+    image = tf.image.resize(image, shape[1:3], method="bicubic")
+    return {**values, "inputs": image}
+
+
+@Composable
+@settings_fn
+def prepare_image_channels_tf(values, *, channel_mean, channel_std):
+    image = values["inputs"]
+    image = image - tf.constant(channel_mean)[None, None, None, :]
+    image = image / tf.constant(channel_std)[None, None, None, :]
+    return {**values, "inputs": image}
+
+
+@Composable
+def one_hot_encode_tf(values):
+    """
+    Convert a class name to a one-hot encoded vector
+    """
+
+    classes, class_to_id = get_classes()
+
+    labels = values["labels"]
+
+    labels = tf.one_hot(labels, len(classes))
+
+    return {**values, "one_hot_labels": labels}

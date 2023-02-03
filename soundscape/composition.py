@@ -79,3 +79,8 @@ def grad(
         return {**new_values, "grad": grad}
 
     return _grad_function
+
+
+@Composable
+def identity(values):
+    return values

@@ -17,7 +17,7 @@ def js(ps):
 
 
 def crossentropy(values):
-    return optax.softmax_cross_entropy(logits=values["logits"], labels=values["labels"])
+    return optax.softmax_cross_entropy(logits=values["logits"], labels=values["one_hot_labels"])
 
 
 def preds(values):
@@ -28,12 +28,12 @@ def augmix_loss(loss_fn: SimpleFunction, num_repetitions=3, l=1.0) -> Composable
     @Composable
     def augmix_loss(values):
         logits = values["logits"]
-        labels = values["labels"]
+        labels = values["one_hot_labels"]
 
         logits = jnp.split(logits, num_repetitions)
 
         ce_loss = loss_fn(
-            {**values, "logits": logits[0], "labels": labels[: logits.shape[1]]}
+            {**values, "logits": logits[0], "one_hot_labels": labels[: logits.shape[1]]}
         )
 
         probs = jax.nn.softmax(logits)
@@ -47,7 +47,7 @@ def augmix_loss(loss_fn: SimpleFunction, num_repetitions=3, l=1.0) -> Composable
 
 
 def accuracy(values):
-    return jnp.float32(values["preds"] == values["labels"].argmax(axis=-1))
+    return jnp.float32(values["preds"] == values["labels"])
 
 
 def weighted(metric_function: SimpleFunction, class_weights=None) -> SimpleFunction:
@@ -57,7 +57,7 @@ def weighted(metric_function: SimpleFunction, class_weights=None) -> SimpleFunct
 
     return (
         lambda values: metric_function(values)
-        * class_weights[values["labels"].argmax(axis=-1)]
+        * class_weights[values["labels"]]
     )
 
 

@@ -10,7 +10,7 @@ import soundfile
 
 from soundscape import settings
 
-settings_fn, settings_dict = settings.from_file("data_settings.yaml")
+settings_fn, settings_dict = settings.from_file()
 
 
 def parallel_map(fn, iterable):

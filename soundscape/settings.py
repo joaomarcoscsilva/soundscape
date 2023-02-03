@@ -1,5 +1,6 @@
 import yaml
 import inspect
+import sys
 
 argdict = {}
 
@@ -51,7 +52,9 @@ def from_dict(settings_dict):
     return transform, settings_dict
 
 
-def from_file(filename):
+def from_file(filename=None):
+    if filename is None:
+        filename = sys.argv[1]
     with open(filename, "r") as f:
         settings_dict = yaml.safe_load(f)
 

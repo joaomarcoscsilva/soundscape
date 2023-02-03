@@ -6,7 +6,7 @@ import flax
 from jax import numpy as jnp
 import haiku as hk
 
-settings_fn, settings_dict = from_file("model_settings.yaml")
+settings_fn, settings_dict = from_file()
 
 
 # Partitioning functions to define which parameters are trainable
@@ -33,7 +33,15 @@ class AddLogits(nn.Module):
 
 
 @settings_fn
-def resnet(rng, *, model_name, initialization, num_classes, trainable_weights):
+def resnet(
+    rng,
+    *,
+    model_name,
+    initialization,
+    num_classes,
+    trainable_weights,
+    always_mutable_bn,
+):
     """
     Return a resnet composable function that produces logits and batch stats.
     Also return a dictionary with the initial variables.
@@ -79,12 +87,21 @@ def resnet(rng, *, model_name, initialization, num_classes, trainable_weights):
 
         params = hk.data_structures.merge(params, fixed_params)
 
+        inputs = values["inputs"]
+        inputs = inputs - jnp.array([0.485, 0.456, 0.406]).reshape((1, 1, 1, 3))
+        inputs = inputs / jnp.array([0.229, 0.224, 0.225]).reshape((1, 1, 1, 3))
+
         logits, variables = net.apply(
             {"params": params, "batch_stats": state},
-            values["inputs"],
-            mutable=["batch_stats"] if values["is_training"] else [],
+            inputs,
+            mutable=["batch_stats"]
+            if values["is_training"] or always_mutable_bn
+            else [],
         )
 
-        return {**values, "logits": logits, "state": variables["batch_stats"]}
+        if values["is_training"]:
+            state = variables["batch_stats"]
+
+        return {**values, "logits": logits, "state": state}
 
     return call_resnet, {"params": params, "fixed_params": fixed_params, "state": state}
