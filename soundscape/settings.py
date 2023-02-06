@@ -1,8 +1,12 @@
 import yaml
 import inspect
 import sys
+from threading import Lock
+
+settings_dict = {}
 
 argdict = {}
+lock = Lock()
 
 
 def merge_dicts(settings_dict, kwargs):
@@ -13,49 +17,55 @@ def select_keys(keys, dictionary):
     return {k: v for k, v in dictionary.items() if k in keys}
 
 
-def from_dict(settings_dict):
-    def transform(fn):
-        argspec = inspect.getfullargspec(fn)
+def settings_fn(fn):
+    global settings_dict
+    argspec = inspect.getfullargspec(fn)
+
+    def wrapped(*args, **kwargs):
+        global argdict, lock
 
         settings_args_needed = settings_dict
-
         if argspec.varkw is None:
             fn_args = set(argspec.args + argspec.kwonlyargs)
             settings_args_needed = set(settings_dict).intersection(fn_args)
 
-        def wrapped(*args, **kwargs):
-            global argdict
-            clean = False
+        must_unlock = False
 
-            if argdict == {}:
-                argdict = merge_dicts(settings_dict, kwargs)
-                clean = True
+        if not lock.locked():
+            lock.acquire()
+            argdict = merge_dicts(settings_dict, kwargs)
+            must_unlock = True
 
-            missing_args = settings_args_needed - set(kwargs.keys())
-            settings_kwargs = select_keys(missing_args, argdict)
-            kwargs = select_keys(fn_args, kwargs)
+        missing_args = settings_args_needed - set(kwargs.keys())
+        settings_kwargs = select_keys(missing_args, argdict)
+        new_kwargs = select_keys(fn_args, kwargs)
 
-            try:
-                results = fn(*args, **kwargs, **settings_kwargs)
-            except:
-                if clean:
-                    argdict = {}
-                raise
+        try:
+            results = fn(*args, **new_kwargs, **settings_kwargs)
+        except:
+            if must_unlock:
+                lock.release()
+            raise
 
-            if clean:
-                argdict = {}
+        if must_unlock:
+            lock.release()
 
-            return results
+        return results
 
-        return wrapped
+    return wrapped
 
-    return transform, settings_dict
+
+def from_dict(dictionary):
+    global settings_dict
+    settings_dict = dictionary
 
 
 def from_file(filename=None):
-    if filename is None:
-        filename = sys.argv[1]
-    with open(filename, "r") as f:
-        settings_dict = yaml.safe_load(f)
+    global settings_dict
 
-    return from_dict(settings_dict)
+    if filename is None and sys.argv[-1].endswith(".yaml"):
+        filename = sys.argv[1]
+
+    if filename is not None:
+        with open(filename, "r") as f:
+            settings_dict = yaml.safe_load(f)

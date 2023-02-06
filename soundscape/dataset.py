@@ -6,20 +6,17 @@ from jax import random, numpy as jnp
 import os
 from glob import glob
 
-from . import settings
+from .settings import settings_fn
 from .composition import Composable
 
-settings_fn, settings_dict = settings.from_file()
 
-
-@settings_fn
-def read_audio_file_tf(path):
+def read_audio_file(path):
     data = tf.io.read_file(path)
     return tf.audio.decode_wav(data, desired_channels=1)[0]
 
 
 @settings_fn
-def read_image_file_tf(path, *, precision):
+def read_image_file(path, *, precision):
     data = tf.io.read_file(path)
     dtype = tf.uint16 if precision == 16 else tf.uint8
     return tf.io.decode_png(data, channels=1, dtype=dtype)
@@ -95,7 +92,7 @@ def get_dataset(
 def get_tensorflow_dataset(split, rng, *, extension):
     ds_dict = get_dataset(split, rng)
     ds = tf.data.Dataset.from_tensor_slices(ds_dict)
-    read_fn = read_image_file_tf if extension == "png" else read_audio_file_tf
+    read_fn = read_image_file if extension == "png" else read_audio_file
     ds = ds.map(lambda x: {"inputs": read_fn(x["_file"]), **x})
     ds = ds.cache()
     return ds
@@ -186,15 +183,6 @@ def downsample_image_tf(values):
     image = values["inputs"]
     shape = (image.shape[0], 224, 224, image.shape[-1])
     image = tf.image.resize(image, shape[1:3], method="bicubic")
-    return {**values, "inputs": image}
-
-
-@Composable
-@settings_fn
-def prepare_image_channels_tf(values, *, channel_mean, channel_std):
-    image = values["inputs"]
-    image = image - tf.constant(channel_mean)[None, None, None, :]
-    image = image / tf.constant(channel_std)[None, None, None, :]
     return {**values, "inputs": image}
 
 

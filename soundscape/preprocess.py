@@ -10,7 +10,7 @@ import soundfile
 
 from soundscape import settings
 
-settings_fn, settings_dict = settings.from_file()
+settings.from_file()
 
 
 def parallel_map(fn, iterable):
@@ -22,7 +22,7 @@ def parallel_map(fn, iterable):
         return list(tqdm(pool.imap(fn, iterable), total=len(iterable)))
 
 
-@settings_fn
+@settings.settings_fn
 def read_audio_file(filename, *, data_dir):
     """
     Read an audio file and return the audio time series and its sampling rate
@@ -32,7 +32,7 @@ def read_audio_file(filename, *, data_dir):
     return audio
 
 
-@settings_fn
+@settings.settings_fn
 def crop_audio_segment(audio, start, end, *, sr):
     """
     Crop an audio segment from start to end seconds.
@@ -43,7 +43,7 @@ def crop_audio_segment(audio, start, end, *, sr):
     return audio[start_index:end_index]
 
 
-@settings_fn
+@settings.settings_fn
 def pad_audio_segment(audio, start, end, *, segment_length, sr, pad_mode):
     """
     Pad an audio segment to segment_length seconds.
@@ -58,7 +58,7 @@ def pad_audio_segment(audio, start, end, *, segment_length, sr, pad_mode):
     return audio, start, end
 
 
-@settings_fn
+@settings.settings_fn
 def crop_audio_event(audio, start, end, *, segment_length, sr):
     """
     Crop an event of size segment_length from the midpoint of start and end
@@ -74,7 +74,7 @@ def crop_audio_event(audio, start, end, *, segment_length, sr):
     return crop_audio_segment(audio, begin, end)
 
 
-@settings_fn
+@settings.settings_fn
 def melspectrogram(audio, *, sr, spectrogram_config):
     """
     Compute the mel spectrogram of an audio time series
@@ -83,7 +83,7 @@ def melspectrogram(audio, *, sr, spectrogram_config):
     return librosa.feature.melspectrogram(y=audio, sr=sr, **spectrogram_config)
 
 
-@settings_fn
+@settings.settings_fn
 def process_melspectrogram(spectrogram, *, precision, lower_threshold, upper_threshold):
     """
     Preprocess an audio file and return its mel spectrogram
@@ -103,7 +103,7 @@ def process_melspectrogram(spectrogram, *, precision, lower_threshold, upper_thr
     return spectrogram
 
 
-@settings_fn
+@settings.settings_fn
 def load_df(*, data_dir, labels_file):
     """
     Read the labels dataframe and return it in a standard format.
@@ -125,7 +125,7 @@ def load_df(*, data_dir, labels_file):
     return df
 
 
-@settings_fn
+@settings.settings_fn
 def save_event(
     audio,
     spectrogram,
@@ -156,6 +156,8 @@ def extract_spectrograms_from_file(df_file):
     # Read the audio file
     audio = read_audio_file(df_file[0])
 
+    breakpoint()
+
     # For each event in the file, crop the audio and compute the spectrogram
     for row in df_file[1].iloc:
         cropped_audio = crop_audio_event(audio, row["begin_time"], row["end_time"])
@@ -166,7 +168,7 @@ def extract_spectrograms_from_file(df_file):
         save_event(cropped_audio, spectrogram, row["split"], row["class"], row.name)
 
 
-@settings_fn
+@settings.settings_fn
 def extract_spectrograms(df):
 
     # Group the events belonging to the same file
@@ -179,7 +181,7 @@ def extract_spectrograms(df):
     return df
 
 
-@settings_fn
+@settings.settings_fn
 def split_class(df_class, rng, *, val_size, test_size):
     """
     Split a class into train, validation and test sets
@@ -198,7 +200,7 @@ def split_class(df_class, rng, *, val_size, test_size):
     return splits
 
 
-@settings_fn
+@settings.settings_fn
 def split_dataset(df, *, split_seed):
 
     # Group the events belonging to the same class

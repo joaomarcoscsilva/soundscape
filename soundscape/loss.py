@@ -1,7 +1,7 @@
 from typing import Optional
 from jax import numpy as jnp
 import jax
-from .composition import SimpleFunction, Composable
+from .composition import Composable
 import optax
 
 
@@ -12,19 +12,20 @@ def kl(p1, p2):
 def js(ps):
     ps = jnp.clip(ps, 1e-7, 1)
     pm = ps.mean(axis=0)
-    n = ps.shape[0]
-    return kl(ps, pm).mean(axis=1)
+    return kl(ps, pm).mean(axis=0)
 
 
 def crossentropy(values):
-    return optax.softmax_cross_entropy(logits=values["logits"], labels=values["one_hot_labels"])
+    return optax.softmax_cross_entropy(
+        logits=values["logits"], labels=values["one_hot_labels"]
+    )
 
 
 def preds(values):
     return values["logits"].argmax(axis=-1)
 
 
-def augmix_loss(loss_fn: SimpleFunction, num_repetitions=3, l=1.0) -> Composable:
+def augmix_loss(loss_fn, num_repetitions=3, l=1.0):
     @Composable
     def augmix_loss(values):
         logits = values["logits"]
@@ -50,16 +51,13 @@ def accuracy(values):
     return jnp.float32(values["preds"] == values["labels"])
 
 
-def weighted(metric_function: SimpleFunction, class_weights=None) -> SimpleFunction:
+def weighted(metric_function, class_weights=None):
 
     if class_weights is None:
         return metric_function
 
-    return (
-        lambda values: metric_function(values)
-        * class_weights[values["labels"]]
-    )
+    return lambda values: metric_function(values) * class_weights[values["labels"]]
 
 
-def mean(function: SimpleFunction) -> SimpleFunction:
+def mean(function):
     return lambda values: function(values).mean()

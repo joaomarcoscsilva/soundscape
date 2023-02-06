@@ -1,10 +1,12 @@
 from jax import random, numpy as jnp
+import jax
 import numpy as np
 from tqdm import tqdm
 import optax
 import pickle
 import sys
 import os
+import keras_cv
 
 from soundscape import (
     dataset,
@@ -41,41 +43,41 @@ rng_ds, rng_net, rng = random.split(rng, 3)
 Dataset
 """
 
+cut_mix = keras_cv.layers.CutMix()
+mix_up = keras_cv.layers.MixUp()
+
+
+def cut_mix_and_mix_up(values):
+    data = {"images": values["inputs"], "labels": values["one_hot_labels"]}
+    data = cut_mix(data, training=True)
+    data = mix_up(data, training=True)
+    return {**values, "inputs": data["images"], "one_hot_labels": data["labels"]}
+
+
 rng_train_ds, rng_val_ds = random.split(rng_ds)
 ds = (
     dataset.get_tensorflow_dataset("train", rng_train_ds)
-    .shuffle(1000, seed=0)
+    .shuffle(100, seed=0)
     .batch(settings_dict["batch_size"])
+    .map(dataset.prepare_image_tf)
+    .map(dataset.downsample_image_tf)
+    .map(dataset.one_hot_encode_tf)
+    # .map(cut_mix_and_mix_up)
 )
+
+
 val_ds = (
     dataset.get_tensorflow_dataset("val", rng_val_ds)
-    .shuffle(1000, seed=0)
+    .shuffle(100, seed=0)
     .batch(settings_dict["batch_size"])
+    .map(dataset.prepare_image_tf)
+    .map(dataset.downsample_image_tf)
+    .map(dataset.one_hot_encode_tf)
 )
 
 
-process_train_batch = (
-    dataset.prepare_image
-    | dataset.one_hot_encode
-    | augment.time_crop()
-    | dataset.downsample_image
-    | augment.cutout(settings_dict["cutout_alpha"])
-    | augment.cutmix(settings_dict["cutmix_alpha"])
-    | augment.mixup(settings_dict["mixup_alpha"])
-)
-
-process_train_batch = composition.jit(process_train_batch)
-process_train_batch = dataset.tf2jax | process_train_batch
-
-process_val_batch = (
-    dataset.prepare_image
-    | dataset.one_hot_encode
-    | augment.time_crop(crop_type="deterministic")
-    | dataset.downsample_image
-)
-
-process_val_batch = composition.jit(process_val_batch)
-process_val_batch = dataset.tf2jax | process_val_batch
+process_train_batch = dataset.tf2jax
+process_val_batch = dataset.tf2jax
 
 weights = dataset.get_class_weights()
 
@@ -103,6 +105,11 @@ lr_schedule = optax.cosine_decay_schedule(
 optim = optax.sgd(lr_schedule, momentum=0.9)
 
 params["optim_state"] = optim.init(params["params"])
+with open("vit_b16.pkl", "rb") as f:
+    params["params"] = pickle.load(f)
+    params["params"] = jax.tree_util.tree_map(lambda x: jnp.array(x), params["params"])
+    params["optim_state"] = optim.init(params["params"])
+
 
 """
 Predict Function
@@ -128,7 +135,7 @@ logged_keys = [
     "labels",
     "preds",
     "logits",
-    "one_hot_labels"
+    "one_hot_labels",
 ]
 
 """
@@ -187,3 +194,5 @@ for e in tqdm(range(settings_dict["epochs"]), position=1, ncols=140, smoothing=0
 
     with open(filename, "wb") as f:
         pickle.dump(logs, f)
+
+print("\n")

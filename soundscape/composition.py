@@ -5,20 +5,8 @@ Value = Any
 Values = Any
 
 
-class SimpleFunction(Protocol):
-    def __call__(self, values: Values) -> Value:
-        ...
-
-
-class ComposableFunction(Protocol):
-    def __call__(self, values: Values) -> Values:
-        ...
-
-
 class Composable:
-    def __init__(
-        self, fn: Union[SimpleFunction, ComposableFunction], key: Optional[str] = None
-    ):
+    def __init__(self, fn, key: Optional[str] = None):
         if isinstance(fn, Composable):
             self.fn = fn.fn
         elif key is None:
@@ -29,7 +17,7 @@ class Composable:
     def __call__(self, values: Values) -> Values:
         return self.fn(values)
 
-    def __or__(self, other: ComposableFunction):
+    def __or__(self, other):
         return Composable(lambda values: other(self(values)))
 
 
@@ -44,9 +32,7 @@ def split_dict(values, keys):
     return d1, d2
 
 
-def jit(
-    function: ComposableFunction, static_keys=[], ignored_keys=[]
-) -> ComposableFunction:
+def jit(function, static_keys=[], ignored_keys=[]):
     def jittable_function(values, static_values):
         return function({**values, **static_values})
 
@@ -65,9 +51,7 @@ def jit(
     return _function
 
 
-def grad(
-    function: ComposableFunction, input_key: str, output_key: str
-) -> ComposableFunction:
+def grad(function, input_key: str, output_key: str):
     def _differentiable_function(differentiable_values, values):
         output = function({**values, input_key: differentiable_values})
         return output[output_key], {**values, **output}

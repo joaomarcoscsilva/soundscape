@@ -1,10 +1,10 @@
 from jax import numpy as jnp
 import jax
 import optax
-from .composition import ComposableFunction, Composable
+from .composition import Composable
 
 
-def update(optimizer: optax.GradientTransformation) -> ComposableFunction:
+def update(optimizer: optax.GradientTransformation):
     @Composable
     def _update(values):
         params = values["params"]

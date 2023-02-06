@@ -2,30 +2,35 @@ import pytest
 
 from soundscape import settings
 
-settings_decorator, settings_dict = settings.from_dict({"a": 1, "b": 2})
 
-
-@settings_decorator
+@settings.settings_fn
 def f(x, *, a):
     return x + a
 
 
-@settings_decorator
+@settings.settings_fn
 def g(*, b):
     return b
 
 
-@settings_decorator
+@settings.settings_fn
 def h(x):
     return f(x)
 
 
-@settings_decorator
+@settings.settings_fn
 def i(*, a, b):
     return a + b
 
 
 def test_settings_calls():
+    settings.from_dict(
+        {
+            "a": 1,
+            "b": 2,
+        }
+    )
+
     assert g() == 2
     assert g(b=1) == 1
     with pytest.raises(TypeError):
