@@ -50,3 +50,8 @@ def test_settings_calls():
     assert i(a=2) == 4
     assert i(b=2) == 3
     assert i(a=2, b=2) == 4
+
+    returned_dict = settings.settings_dict()
+
+    assert returned_dict["a"] == 1
+    assert returned_dict["b"] == 2

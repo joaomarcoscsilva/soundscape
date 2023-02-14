@@ -40,11 +40,11 @@ def test_count_steps():
     fn = f | log.count_steps
 
     values = fn({})
+    assert values == {"_step": 0}
+    values = fn(values)
     assert values == {"_step": 1}
     values = fn(values)
     assert values == {"_step": 2}
-    values = fn(values)
-    assert values == {"_step": 3}
 
 
 def test_format_digits():
@@ -60,6 +60,8 @@ def test_merge_logs():
         {"a": np.zeros((2, 3)), "b": np.ones((2, 3, 4))},
         {"a": np.zeros((2, 3)), "b": np.ones((2, 3, 4))},
         {"a": np.zeros((2, 3)), "b": np.ones((2, 3, 4))},
+        {"c": np.zeros((5, 3))},
+        {"c": np.zeros((5, 3))},
     ]
 
     concat_logs = log.merge_logs(logs, "concat")
@@ -67,8 +69,10 @@ def test_merge_logs():
 
     assert (concat_logs["a"] == np.zeros((6, 3))).all()
     assert (concat_logs["b"] == np.ones((6, 3, 4))).all()
+    assert (concat_logs["c"] == np.zeros((10, 3))).all()
     assert (stack_logs["a"] == np.zeros((3, 2, 3))).all()
     assert (stack_logs["b"] == np.ones((3, 2, 3, 4))).all()
+    assert (stack_logs["c"] == np.zeros((2, 5, 3))).all()
 
     with pytest.raises(ValueError):
         log.merge_logs(logs, "unknown")

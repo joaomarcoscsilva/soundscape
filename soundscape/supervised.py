@@ -19,7 +19,8 @@ from soundscape import (
     settings,
     log,
 )
-from composition import Composable, identity
+from soundscape.composition import Composable, identity
+from soundscape.settings import settings_dict
 
 if len(sys.argv) > 2:
     for i, arg in enumerate(sys.argv[1:]):
@@ -30,54 +31,56 @@ if len(sys.argv) > 2:
             sys.exit(errcode)
     sys.exit(0)
 
-
 """
 Setup
 """
 
-settings_fn, settings_dict = settings.from_file()
-
-rng = random.PRNGKey(0)
+settings.from_file(sys.argv[-1])
+rng = random.PRNGKey(settings_dict()["training_seed"])
 rng_ds, rng_net, rng = random.split(rng, 3)
+
 """
 Dataset
 """
 
-cut_mix = keras_cv.layers.CutMix()
-mix_up = keras_cv.layers.MixUp()
-
-
-def cut_mix_and_mix_up(values):
-    data = {"images": values["inputs"], "labels": values["one_hot_labels"]}
-    data = cut_mix(data, training=True)
-    data = mix_up(data, training=True)
-    return {**values, "inputs": data["images"], "one_hot_labels": data["labels"]}
-
-
 rng_train_ds, rng_val_ds = random.split(rng_ds)
 ds = (
     dataset.get_tensorflow_dataset("train", rng_train_ds)
-    .shuffle(100, seed=0)
-    .batch(settings_dict["batch_size"])
-    .map(dataset.prepare_image_tf)
-    .map(dataset.downsample_image_tf)
-    .map(dataset.one_hot_encode_tf)
-    # .map(cut_mix_and_mix_up)
+    .shuffle(100, seed=rng_train_ds[0])
+    .batch(settings_dict()["batch_size"])
 )
 
 
 val_ds = (
     dataset.get_tensorflow_dataset("val", rng_val_ds)
-    .shuffle(100, seed=0)
-    .batch(settings_dict["batch_size"])
-    .map(dataset.prepare_image_tf)
-    .map(dataset.downsample_image_tf)
-    .map(dataset.one_hot_encode_tf)
+    .shuffle(100, seed=rng_val_ds[0])
+    .batch(settings_dict()["batch_size"])
 )
 
+"""
+Preprocessing
+"""
 
-process_train_batch = dataset.tf2jax
-process_val_batch = dataset.tf2jax
+process_train_batch = (
+    dataset.prepare_image
+    | dataset.one_hot_encode
+    | augment.time_crop()
+    | dataset.downsample_image
+    | dataset.split_rng
+    | augment.cutout(settings_dict()["cutout_alpha"])
+    | augment.cutmix(settings_dict()["cutmix_alpha"])
+    | augment.mixup(settings_dict()["mixup_alpha"])
+)
+
+process_val_batch = (
+    dataset.prepare_image
+    | dataset.one_hot_encode
+    | augment.time_crop()
+    | dataset.downsample_image
+)
+
+process_train_batch = dataset.tf2jax | composition.jit(process_train_batch)
+process_val_batch = dataset.tf2jax | composition.jit(process_val_batch)
 
 weights = dataset.get_class_weights()
 
@@ -85,31 +88,19 @@ weights = dataset.get_class_weights()
 Network and Optimizer
 """
 
-if "resnet" in settings_dict["model_name"]:
+if "resnet" in settings_dict()["model_name"]:
     call_fn, params = resnet.resnet(rng_net)
-elif "vit" in settings_dict["model_name"]:
+elif "vit" in settings_dict()["model_name"]:
     call_fn, params = vit.vit(rng_net)
 
-# lr_schedule = optax.warmup_cosine_decay_schedule(
-#     init_value=0.0,
-#     peak_value=settings_dict["learning_rate"],
-#     warmup_steps=len(ds),
-#     decay_steps=len(ds) * (settings_dict["epochs"] - 1),
-# )
-
 lr_schedule = optax.cosine_decay_schedule(
-    init_value=settings_dict["learning_rate"],
-    decay_steps=len(ds) * settings_dict["epochs"],
+    init_value=settings_dict()["learning_rate"],
+    decay_steps=len(ds) * settings_dict()["epochs"],
 )
 
 optim = optax.sgd(lr_schedule, momentum=0.9)
 
 params["optim_state"] = optim.init(params["params"])
-with open("vit_b16.pkl", "rb") as f:
-    params["params"] = pickle.load(f)
-    params["params"] = jax.tree_util.tree_map(lambda x: jnp.array(x), params["params"])
-    params["optim_state"] = optim.init(params["params"])
-
 
 """
 Predict Function
@@ -153,9 +144,9 @@ Evaluation Function
 evaluate = composition.jit(predict, static_keys=["is_training"])
 evaluate = evaluate | log.track(logged_keys, prefix="val_")
 
-track_progress = log.track_progress(
+track_progress = log.count_steps | log.track_progress(
     ["epoch", "ce_loss", "bal_acc", "val_ce_loss", "val_bal_acc"],
-    every=5,
+    every=11,
     total=len(ds) + len(val_ds),
 )
 
@@ -165,34 +156,37 @@ evaluate = evaluate | track_progress
 """
 Training
 """
+print("Training...\n\n\n")
 
 params_keys = params.keys()
 
-print("Training...\n\n\n")
-
 logs = []
 
-for e in tqdm(range(settings_dict["epochs"]), position=1, ncols=140, smoothing=0.9):
+rng_train, rng_eval = random.split(rng)
+
+for e in tqdm(range(settings_dict()["epochs"]), position=1, ncols=140, smoothing=0.9):
 
     values = {**params, "is_training": True, "epoch": jnp.array([e + 1])}
     del params
 
     for batch in ds:
-        batch = process_train_batch(batch)
+        rng_train, _rng_train = random.split(rng_train)
+        batch = process_train_batch({**batch, "rng": _rng_train})
         values = train({**values, **batch})
 
     values["is_training"] = True
 
     for batch in val_ds:
         batch = process_val_batch(batch)
-        values = evaluate({**values, **batch})
+        rng_eval, _rng_eval = random.split(rng_eval)
+        values = evaluate({**values, **batch, "rng": _rng_eval})
 
     params = {k: values[k] for k in params_keys}
-    logs.append(values["_logs"])
+    logs.append(log.merge_logs(values["_logs"], "concat"))
 
     filename = sys.argv[1].replace(".yaml", ".pkl").replace("settings/", "logs/")
 
     with open(filename, "wb") as f:
-        pickle.dump(logs, f)
+        pickle.dump(log.merge_logs(logs, "stack"), f)
 
 print("\n")
