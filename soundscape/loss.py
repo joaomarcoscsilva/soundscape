@@ -31,12 +31,21 @@ def crossentropy(values):
     )
 
 
-def preds(values):
+def preds(weights=None):
     """
-    Compute the predictions from the logits
+    Return a function that returns the predictions from the logits.
     """
 
-    return values["logits"].argmax(axis=-1)
+    if weights is None:
+        weights = 1
+
+    def _preds(values):
+        logits = values["logits"]
+        probs = jax.nn.softmax(logits)
+        w_probs = probs * weights
+        return w_probs.argmax(axis=-1)
+
+    return _preds
 
 
 def augmix_loss(loss_fn, num_repetitions=3, l=1.0):

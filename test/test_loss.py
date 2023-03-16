@@ -49,13 +49,20 @@ def test_crossentropy():
 
 def test_preds():
     logits = jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    preds = loss.preds({"logits": logits})
+    preds = loss.preds()({"logits": logits})
     assert jnp.allclose(preds, jnp.array([2, 1, 0]))
+
+
+def test_weighted_preds():
+    logits = jnp.ones((10, 3))
+    weights = jnp.array([1.0, 4.0, 3.0])
+    preds = loss.preds(weights)({"logits": logits})
+    assert jnp.allclose(preds, 1)
 
 
 def test_accuracy():
     logits = jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    preds = loss.preds({"logits": logits})
+    preds = loss.preds()({"logits": logits})
     labels = jnp.array([1, 1, 0])
     acc = loss.accuracy({"preds": preds, "labels": labels})
     assert jnp.allclose(acc, jnp.array([0, 1, 1]))
@@ -63,7 +70,7 @@ def test_accuracy():
 
 def test_weighted():
     logits = jnp.array([[1.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    preds = loss.preds({"logits": logits})
+    preds = loss.preds()({"logits": logits})
     labels = jnp.array([2, 1, 0])
 
     weights = jnp.array([1.0, 2.0, 3.0])
@@ -79,7 +86,7 @@ def test_weighted():
 
 def test_mean():
     logits = jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    preds = loss.preds({"logits": logits})
+    preds = loss.preds()({"logits": logits})
     labels = jnp.array([1, 1, 0])
 
     acc_fn = loss.mean(loss.accuracy)

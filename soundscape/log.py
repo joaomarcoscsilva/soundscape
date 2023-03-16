@@ -1,9 +1,14 @@
 from .composition import Composable
+from . import settings
+
+import numpy as np
 from tqdm import tqdm
 from jax import numpy as jnp
 import jax
 from tqdm import tqdm
 from itertools import chain
+import pickle
+import haiku as hk
 
 
 def track(keys, prefix=""):
@@ -21,7 +26,6 @@ def track(keys, prefix=""):
 
     @Composable
     def _track(values):
-
         # Get the values to be logged
         step_logs = {prefix + key: values[key] for key in keys}
 
@@ -57,6 +61,10 @@ def format_digits(val, digits=6):
     Format a number to a given number of digits.
     """
 
+    # Check if val is nan
+    if jnp.isnan(val):
+        return "   nan"
+
     # Get the number of digits in the integer part
     integer_len = len(str(int(val)))
 
@@ -65,7 +73,7 @@ def format_digits(val, digits=6):
         return f"{val:{digits}d}"
     else:
         # If a float, assign all remaining digits to the fractional part
-        return f"{val:.{digits - integer_len - 1}f}"
+        return f"{val:.{max(digits - integer_len - 1, 0)}f}"
 
 
 def merge_logs(logs, mode):
@@ -89,9 +97,17 @@ def merge_logs(logs, mode):
     else:
         raise ValueError(f"Unknown mode {mode}")
 
+    def merge_fn(ls):
+        if (isinstance(ls[0], np.ndarray) or isinstance(ls[0], jnp.ndarray)) and len(
+            ls[0].shape
+        ) > 0:
+            return fn(ls)
+        else:
+            return ls
+
     # Merge the logs
     merged = {
-        key: fn([log[key] for log in logs if key in log])
+        key: merge_fn([log[key] for log in logs if key in log])
         for key in set(logs[0]) | set(logs[-1])
     }
 
@@ -122,7 +138,6 @@ def track_progress(keys, every=1, total=None):
 
     @Composable
     def _track_progress(values):
-
         step = values["_step"]
         logs = values["_logs"]
 
@@ -132,8 +147,7 @@ def track_progress(keys, every=1, total=None):
             tqdm_bar = tqdm(total=total, ncols=140)
 
         # Update the progress bar, if needed
-        if step % every == 0 or step + 1 == total:
-
+        if step % every == 0 or (step + 1) % total == 0:
             # Merge all logs so far
             merged_logs = merge_logs(logs, mode="concat")
 
@@ -155,11 +169,102 @@ def track_progress(keys, every=1, total=None):
         # Update the progress bar
         tqdm_bar.update()
 
-
         # Close the progress bar, if needed
-        if step + 1 == total:
+        if (step + 1) % total == 0:
             tqdm_bar.close()
+            if "_tqdm" in values:
+                values.pop("_tqdm")
+            return values
 
         return {**values, "_tqdm": tqdm_bar}
 
     return _track_progress
+
+
+def mean_over_epoch(keys):
+    """
+    Compute the mean of the given metrics over the current epoch.
+    """
+
+    @Composable
+    def _mean_over_epoch(values):
+        epoch_logs = values["_epoch_logs"]
+        mean_epoch_logs = {
+            "mean_" + k: v.mean(-1) for k, v in epoch_logs.items() if k in keys
+        }
+        return {**values, "_epoch_logs": {**epoch_logs, **mean_epoch_logs}}
+
+    return _mean_over_epoch
+
+
+@Composable
+def stack_epoch_logs(values):
+    """
+    Add the logs for the current epoch to the logs of the previous epochs.
+    """
+
+    # Get the logs for the current epoch
+    logs = values.pop("_logs")
+    epoch_logs = merge_logs([merge_logs(logs, "concat")], "stack")
+
+    # Get the logs for the previous epochs
+    if "_epoch_logs" in values:
+        epoch_logs = merge_logs([values["_epoch_logs"], epoch_logs], "concat")
+
+    return {**values, "_epoch_logs": epoch_logs}
+
+
+@Composable
+@settings.settings_fn
+def save_logs(values, *, name, save_log, save_settings):
+    """
+    Save the logs to a file.
+    """
+
+    if save_log:
+        with open(f"logs/{name}.pkl", "wb") as f:
+            pickle.dump(values["_epoch_logs"], f)
+
+    return values
+
+
+@Composable
+@settings.settings_fn
+def save_params(
+    values, *, name, save_weights, early_stopping, optimizing_metric, optimizing_mode
+):
+    """
+    Save the parameters of the model to a file.
+    """
+
+    if not save_weights:
+        return values
+
+    # Get the model parameters
+    params = values["params"]
+    fixed_params = values["fixed_params"]
+
+    # Merge the parameters
+    params = hk.data_structures.merge(params, fixed_params)
+
+    save = not early_stopping
+
+    if early_stopping:
+        metric = values["_epoch_logs"][optimizing_metric]
+
+        if optimizing_mode == "min":
+            metric = -metric
+
+        if metric.ndim != 1:
+            raise ValueError(
+                f"Metric {optimizing_metric} should be be a mean over the epoch."
+            )
+
+        if metric[-1] == metric.max():
+            save = True
+
+    if save:
+        with open(f"params/{name}.pkl", "wb") as f:
+            pickle.dump(params, f)
+
+    return values

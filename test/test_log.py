@@ -55,7 +55,6 @@ def test_format_digits():
 
 
 def test_merge_logs():
-
     logs = [
         {"a": np.zeros((2, 3)), "b": np.ones((2, 3, 4))},
         {"a": np.zeros((2, 3)), "b": np.ones((2, 3, 4))},
@@ -79,7 +78,6 @@ def test_merge_logs():
 
 
 def test_mean_keep_dtype():
-
     x_int32 = np.array([1, 2, 3, 4], dtype=np.int32)
     x_int64 = np.array([1, 2, 3, 4], dtype=np.int64)
     x_float32 = np.array([1, 2, 3, 4], dtype=np.float32)
@@ -94,9 +92,8 @@ def test_mean_keep_dtype():
 
 
 def test_track_progress():
-
     values = {
-        "_step": 9,
+        "_step": 8,
         "_logs": [
             {"a": np.array([1]), "b": np.array([2.0]), "c": np.array([3.0])},
             {"a": np.array([1]), "b": np.array([3.0]), "c": np.array([4.0])},

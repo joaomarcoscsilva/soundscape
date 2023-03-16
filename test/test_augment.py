@@ -13,7 +13,6 @@ def assert_all_different(values_list):
 
 
 def test_batch_rngs():
-
     rng1 = jax.random.PRNGKey(0)
     rng2 = jax.random.PRNGKey(1)
 
@@ -38,7 +37,6 @@ def test_batch_rngs():
 
 
 def test_crop_time_array():
-
     arr = jnp.arange(60)[None, ...]
 
     cropped_arr = augment.crop_time_array(
@@ -56,7 +54,6 @@ def test_crop_time_array():
 
 
 def test_deterministic_time_crop():
-
     arr = jnp.arange(120).reshape(1, 2, 60, 1)
     crop_fn = augment.deterministic_time_crop(
         segment_length=60, cropped_length=4, extension="png"
@@ -81,62 +78,60 @@ def test_deterministic_time_crop():
 
 
 def test_random_time_crop():
+    with settings.Settings(
+        {"segment_length": 60, "cropped_length": 4, "extension": "png"}
+    ):
+        rng1 = jax.random.PRNGKey(0)[None, ...]
+        rng2 = jax.random.PRNGKey(1)[None, ...]
 
-    rng1 = jax.random.PRNGKey(0)[None, ...]
-    rng2 = jax.random.PRNGKey(1)[None, ...]
+        arr = jnp.arange(120).reshape(1, 2, 60, 1)
+        new_values_1 = augment.random_time_crop()({"inputs": arr, "rngs": rng1})
+        new_values_1_copy = augment.random_time_crop()({"inputs": arr, "rngs": rng1})
+        new_values_2 = augment.random_time_crop()({"inputs": arr, "rngs": rng2})
 
-    settings._settings_dict["segment_length"] = 60
-    settings._settings_dict["cropped_length"] = 4
-    settings._settings_dict["extension"] = "png"
+        assert_all_different([rng1, rng2, new_values_1["rngs"], new_values_2["rngs"]])
+        assert jnp.allclose(new_values_1["rngs"], new_values_1_copy["rngs"])
 
-    arr = jnp.arange(120).reshape(1, 2, 60, 1)
-    new_values_1 = augment.random_time_crop()({"inputs": arr, "rngs": rng1})
-    new_values_1_copy = augment.random_time_crop()({"inputs": arr, "rngs": rng1})
-    new_values_2 = augment.random_time_crop()({"inputs": arr, "rngs": rng2})
+        new_arr_1 = new_values_1["inputs"]
+        new_arr_1_copy = new_values_1_copy["inputs"]
+        new_arr_2 = new_values_2["inputs"]
 
-    assert_all_different([rng1, rng2, new_values_1["rngs"], new_values_2["rngs"]])
-    assert jnp.allclose(new_values_1["rngs"], new_values_1_copy["rngs"])
+        assert jnp.allclose(new_arr_1, new_arr_1_copy)
+        assert not jnp.allclose(new_arr_1, new_arr_2)
+        assert new_arr_1.shape == (1, 2, 4, 1)
 
-    new_arr_1 = new_values_1["inputs"]
-    new_arr_1_copy = new_values_1_copy["inputs"]
-    new_arr_2 = new_values_2["inputs"]
+    with settings.Settings(
+        {"segment_length": 5, "cropped_length": 3, "extension": "wav"}
+    ):
+        rng1 = jax.random.PRNGKey(0)
+        rng2 = jax.random.PRNGKey(1)
+        rng1 = jax.random.split(rng1, 2)
+        rng2 = jax.random.split(rng2, 2)
 
-    assert jnp.allclose(new_arr_1, new_arr_1_copy)
-    assert not jnp.allclose(new_arr_1, new_arr_2)
-    assert new_arr_1.shape == (1, 2, 4, 1)
+        arr = jnp.arange(100).reshape((2, 50))
+        new_arr_1 = augment.random_time_crop()({"inputs": arr, "rngs": rng1})["inputs"]
+        new_arr_1_copy = augment.random_time_crop()({"inputs": arr, "rngs": rng1})[
+            "inputs"
+        ]
+        new_arr_2 = augment.random_time_crop()({"inputs": arr, "rngs": rng2})["inputs"]
 
-    rng1 = jax.random.PRNGKey(0)
-    rng2 = jax.random.PRNGKey(1)
-    rng1 = jax.random.split(rng1, 2)
-    rng2 = jax.random.split(rng2, 2)
-
-    settings._settings_dict["segment_length"] = 5
-    settings._settings_dict["cropped_length"] = 3
-    settings._settings_dict["extension"] = "wav"
-
-    arr = jnp.arange(100).reshape((2, 50))
-    new_arr_1 = augment.random_time_crop()({"inputs": arr, "rngs": rng1})["inputs"]
-    new_arr_1_copy = augment.random_time_crop()({"inputs": arr, "rngs": rng1})["inputs"]
-    new_arr_2 = augment.random_time_crop()({"inputs": arr, "rngs": rng2})["inputs"]
-
-    assert jnp.allclose(new_arr_1, new_arr_1_copy)
-    assert not jnp.allclose(new_arr_1, new_arr_2)
-    assert new_arr_1.shape == (2, 30)
+        assert jnp.allclose(new_arr_1, new_arr_1_copy)
+        assert not jnp.allclose(new_arr_1, new_arr_2)
+        assert new_arr_1.shape == (2, 30)
 
 
 def test_time_crop():
-    settings._settings_dict["segment_length"] = 60
-    settings._settings_dict["cropped_length"] = 4
-    settings._settings_dict["extension"] = "png"
+    with settings.Settings(
+        {"segment_length": 60, "cropped_length": 4, "extension": "png"}
+    ):
+        fn = augment.time_crop(crop_type="deterministic")
+        assert isinstance(fn, Callable)
 
-    fn = augment.time_crop(crop_type="deterministic")
-    assert isinstance(fn, Callable)
+        fn = augment.time_crop(crop_type="random")
+        assert isinstance(fn, Callable)
 
-    fn = augment.time_crop(crop_type="random")
-    assert isinstance(fn, Callable)
-
-    fn = augment.time_crop(crop_type="<invalid>")
-    assert fn is composition.identity
+        fn = augment.time_crop(crop_type="<invalid>")
+        assert fn is composition.identity
 
 
 def test_rectangular_mask():
@@ -160,7 +155,6 @@ def test_rectangular_mask():
 
 
 def test_cutout():
-
     fn = augment.cutout(beta_params=None)
     assert fn == composition.identity
 
@@ -204,7 +198,6 @@ def test_cutout():
 
 
 def test_mixup():
-
     fn = augment.mixup(beta_params=None)
     assert fn == composition.identity
 
@@ -280,7 +273,6 @@ def test_mixup():
 
 
 def test_cutmix():
-
     fn = augment.cutmix(beta_params=None)
     assert fn == composition.identity
 

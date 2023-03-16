@@ -87,7 +87,6 @@ def deterministic_time_crop(*, segment_length, cropped_length, extension):
     """
 
     # Define the vmapped version of crop_time_array
-    print("WARNING: IMPORTANT TODO IN AUGMENT.DETERMINISTIC_TIME_CROP")
     _batch_crop_time_array = jax.vmap(
         partial(
             crop_time_array,
@@ -151,7 +150,6 @@ def random_time_crop(*, segment_length, cropped_length, extension):
     )
 
     def _random_time_crop(values):
-
         # Batch split the random keys
         rngs, _rngs = batch_split(values["rngs"], 2)
 
@@ -269,7 +267,7 @@ def cutout(beta_params=[1.0, 1.0], mask_fn=rectangular_mask):
     """
 
     # If there is no beta_params, disable the augmentation
-    if beta_params is None:
+    if beta_params is None or jnp.all(beta_params <= 0):
         return identity
 
     # Convert beta_params to an array
@@ -334,7 +332,7 @@ def mixup(beta_params=[1.0, 1.0]):
     """
 
     # If there is no beta_params, disable the augmentation
-    if beta_params is None:
+    if beta_params is None or jnp.all(beta_params <= 0):
         return identity
 
     # Convert beta_params to an array
@@ -416,7 +414,7 @@ def cutmix(beta_params=[1.0, 1.0], mask_fn=rectangular_mask):
     """
 
     # If there is no beta_params, disable the augmentation
-    if beta_params is None:
+    if beta_params is None or jnp.all(beta_params <= 0):
         return identity
 
     # Convert beta_params to an array

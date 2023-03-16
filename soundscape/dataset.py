@@ -127,7 +127,6 @@ def get_dataset_dict(
     }
 
     for cls in classes:
-
         # Get the list of files in the current class directory
         files = glob(os.path.join(dataset_dir, cls, f"*.{extension}"))
 
@@ -172,9 +171,6 @@ def get_tensorflow_dataset(split, rng, *, extension):
     read_fn = read_image_file if extension == "png" else read_audio_file
     ds = ds.map(lambda x: {"inputs": read_fn(x["_file"]), **x})
 
-    # Cache the dataset
-    # ds = ds.cache()
-
     return ds
 
 
@@ -194,12 +190,14 @@ def tf2jax(values):
             x = x.numpy()
 
         # if the dtype is adequate, convert to a jax array
-        if not (isinstance(x, bytes) or x.dtype == np.dtype("O")):
+        if isinstance(x, np.ndarray) and x.dtype != np.dtype("O"):
             x = jnp.array(x)
 
         return x
 
-    return {k: _tf2jax(v) for k, v in values.items()}
+    values = {k: _tf2jax(v) for k, v in values.items()}
+
+    return values
 
 
 @settings_fn

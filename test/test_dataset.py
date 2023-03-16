@@ -28,46 +28,45 @@ def test_get_classes():
     class_order = ["other", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]
     class_order_2 = ["first_6", "last_6"]
 
-    settings.from_dict(
+    with settings.Settings(
         {"class_order": class_order, "class_order_2": class_order_2, "num_classes": 12}
-    )
+    ):
+        classes, idx_fn = dataset.get_classes(
+            num_classes=13,
+        )
+        class_names = dataset.get_class_names(num_classes=13)
 
-    classes, idx_fn = dataset.get_classes(
-        num_classes=13,
-    )
-    class_names = dataset.get_class_names(num_classes=13)
+        assert classes == class_order == class_names
+        assert idx_fn("a") == 1
+        assert idx_fn("other") == 0
+        assert idx_fn("l") == 12
 
-    assert classes == class_order == class_names
-    assert idx_fn("a") == 1
-    assert idx_fn("other") == 0
-    assert idx_fn("l") == 12
+        classes, idx_fn = dataset.get_classes(
+            num_classes=12,
+        )
+        class_names = dataset.get_class_names(num_classes=12)
 
-    classes, idx_fn = dataset.get_classes(
-        num_classes=12,
-    )
-    class_names = dataset.get_class_names(num_classes=12)
+        assert classes == class_order[1:] == class_names
+        assert idx_fn("a") == 0
+        assert idx_fn("l") == 11
+        assert "other" not in classes
 
-    assert classes == class_order[1:] == class_names
-    assert idx_fn("a") == 0
-    assert idx_fn("l") == 11
-    assert "other" not in classes
+        classes, idx_fn = dataset.get_classes(
+            num_classes=2,
+        )
+        class_names = dataset.get_class_names(num_classes=2)
 
-    classes, idx_fn = dataset.get_classes(
-        num_classes=2,
-    )
-    class_names = dataset.get_class_names(num_classes=2)
+        assert classes == class_order_2 == class_names
+        assert idx_fn("a") == 0
+        assert idx_fn("b") == 0
+        assert idx_fn("f") == 0
+        assert idx_fn("g") == 1
+        assert idx_fn("i") == 1
+        assert idx_fn("l") == 1
+        assert "other" not in classes
 
-    assert classes == class_order_2 == class_names
-    assert idx_fn("a") == 0
-    assert idx_fn("b") == 0
-    assert idx_fn("f") == 0
-    assert idx_fn("g") == 1
-    assert idx_fn("i") == 1
-    assert idx_fn("l") == 1
-    assert "other" not in classes
-
-    with pytest.raises(ValueError):
-        dataset.get_classes(num_classes=11)
+        with pytest.raises(ValueError):
+            dataset.get_classes(num_classes=11)
 
 
 @pytest.mark.parametrize(
@@ -75,7 +74,7 @@ def test_get_classes():
     [(13, 9990, 3323, 3323), (12, 2293, 758, 758), (2, 2293, 758, 758)],
 )
 def test_dataset(num_classes, num_train, num_val, num_test):
-    settings.from_dict(
+    with settings.Settings(
         {
             "data_dir": "data",
             "spectrogram_dir": "leec",
@@ -98,70 +97,69 @@ def test_dataset(num_classes, num_train, num_val, num_test):
             "class_order_2": ["bird", "frog"],
             "extension": "png",
         }
-    )
+    ):
+        class_names = dataset.get_class_names(num_classes=num_classes)
 
-    class_names = dataset.get_class_names(num_classes=num_classes)
+        rng = random.PRNGKey(0)
 
-    rng = random.PRNGKey(0)
+        train_ds = dataset.get_dataset_dict("train", rng, num_classes=num_classes)
+        assert len(train_ds["_file"]) == num_train
+        assert len(train_ds["labels"]) == num_train
+        assert len(train_ds["id"]) == num_train
 
-    train_ds = dataset.get_dataset_dict("train", rng, num_classes=num_classes)
-    assert len(train_ds["_file"]) == num_train
-    assert len(train_ds["labels"]) == num_train
-    assert len(train_ds["id"]) == num_train
+        val_ds = dataset.get_dataset_dict("val", rng, num_classes=num_classes)
+        assert len(val_ds["_file"]) == num_val
+        assert len(val_ds["labels"]) == num_val
+        assert len(val_ds["id"]) == num_val
 
-    val_ds = dataset.get_dataset_dict("val", rng, num_classes=num_classes)
-    assert len(val_ds["_file"]) == num_val
-    assert len(val_ds["labels"]) == num_val
-    assert len(val_ds["id"]) == num_val
+        test_ds = dataset.get_dataset_dict("test", rng, num_classes=num_classes)
+        assert len(test_ds["_file"]) == num_test
+        assert len(test_ds["labels"]) == num_test
+        assert len(test_ds["id"]) == num_test
 
-    test_ds = dataset.get_dataset_dict("test", rng, num_classes=num_classes)
-    assert len(test_ds["_file"]) == num_test
-    assert len(test_ds["labels"]) == num_test
-    assert len(test_ds["id"]) == num_test
+        assert set(train_ds["id"]) & set(val_ds["id"]) == set()
+        assert set(train_ds["id"]) & set(test_ds["id"]) == set()
+        assert set(val_ds["id"]) & set(test_ds["id"]) == set()
 
-    assert set(train_ds["id"]) & set(val_ds["id"]) == set()
-    assert set(train_ds["id"]) & set(test_ds["id"]) == set()
-    assert set(val_ds["id"]) & set(test_ds["id"]) == set()
+        assert set(train_ds["_file"]) & set(val_ds["_file"]) == set()
+        assert set(train_ds["_file"]) & set(test_ds["_file"]) == set()
+        assert set(val_ds["_file"]) & set(test_ds["_file"]) == set()
 
-    assert set(train_ds["_file"]) & set(val_ds["_file"]) == set()
-    assert set(train_ds["_file"]) & set(test_ds["_file"]) == set()
-    assert set(val_ds["_file"]) & set(test_ds["_file"]) == set()
+        assert len(set(train_ds["id"])) == num_train
+        assert len(set(val_ds["id"])) == num_val
+        assert len(set(test_ds["id"])) == num_test
 
-    assert len(set(train_ds["id"])) == num_train
-    assert len(set(val_ds["id"])) == num_val
-    assert len(set(test_ds["id"])) == num_test
+        assert (
+            set(train_ds["labels"])
+            == set(val_ds["labels"])
+            == set(test_ds["labels"])
+            == set(range(num_classes))
+        )
 
-    assert (
-        set(train_ds["labels"])
-        == set(val_ds["labels"])
-        == set(test_ds["labels"])
-        == set(range(num_classes))
-    )
+        mean_train = jax.nn.one_hot(train_ds["labels"], 13).mean(0)
+        mean_val = jax.nn.one_hot(val_ds["labels"], 13).mean(0)
+        mean_test = jax.nn.one_hot(test_ds["labels"], 13).mean(0)
 
-    mean_train = jax.nn.one_hot(train_ds["labels"], 13).mean(0)
-    mean_val = jax.nn.one_hot(val_ds["labels"], 13).mean(0)
-    mean_test = jax.nn.one_hot(test_ds["labels"], 13).mean(0)
+        assert jnp.allclose(mean_train, mean_val, atol=0.005)
+        assert jnp.allclose(mean_train, mean_test, atol=0.005)
+        assert jnp.allclose(mean_val, mean_test, atol=0.005)
 
-    assert jnp.allclose(mean_train, mean_val, atol=0.005)
-    assert jnp.allclose(mean_train, mean_test, atol=0.005)
-    assert jnp.allclose(mean_val, mean_test, atol=0.005)
+        if num_classes in [13, 12]:
+            for ds, split_name in zip(
+                (train_ds, val_ds, test_ds), ("train", "val", "test")
+            ):
+                for i in range(10):
+                    class_id = ds["labels"][i]
+                    class_name = class_names[class_id]
+                    idx = ds["id"][i]
+                    files = os.listdir(f"data/leec/{split_name}/{class_name}/")
 
-    if num_classes in [13, 12]:
-        for ds, split_name in zip(
-            (train_ds, val_ds, test_ds), ("train", "val", "test")
-        ):
-            for i in range(10):
-                class_id = ds["labels"][i]
-                class_name = class_names[class_id]
-                idx = ds["id"][i]
-                files = os.listdir(f"data/leec/{split_name}/{class_name}/")
-
-                assert f"{idx}.png" in files
-                assert f"{idx}.wav" in files
+                    assert f"{idx}.png" in files
+                    assert f"{idx}.wav" in files
 
 
 def test_get_tensorflow_dataset():
-    settings.from_dict(
+    with settings.Settings(
         {
             "data_dir": "data",
             "spectrogram_dir": "leec",
@@ -185,47 +183,46 @@ def test_get_tensorflow_dataset():
             "extension": "png",
             "precision": 16,
         }
-    )
-
-    rng = jax.random.PRNGKey(0)
-
-    train_ds = dataset.get_tensorflow_dataset("train", rng)
-    val_ds = dataset.get_tensorflow_dataset("val", rng)
-    test_ds = dataset.get_tensorflow_dataset("test", rng)
-
-    train_dict = dataset.get_dataset_dict("train", rng)
-    val_dict = dataset.get_dataset_dict("val", rng)
-    test_dict = dataset.get_dataset_dict("test", rng)
-
-    for ds, ds_dict in zip(
-        (train_ds, val_ds, test_ds), (train_dict, val_dict, test_dict)
     ):
-        for i, batch in enumerate(ds.take(32)):
-            assert batch["inputs"].shape == (256, 423, 1)
-            assert batch["labels"] == ds_dict["labels"][i]
-            assert batch["id"] == ds_dict["id"][i]
-            assert batch["_file"] == ds_dict["_file"][i]
+        rng = jax.random.PRNGKey(0)
 
-    train_ds_audio = dataset.get_tensorflow_dataset("train", rng, extension="wav")
-    val_ds_audio = dataset.get_tensorflow_dataset("val", rng, extension="wav")
-    test_ds_audio = dataset.get_tensorflow_dataset("test", rng, extension="wav")
+        train_ds = dataset.get_tensorflow_dataset("train", rng)
+        val_ds = dataset.get_tensorflow_dataset("val", rng)
+        test_ds = dataset.get_tensorflow_dataset("test", rng)
 
-    train_dict = dataset.get_dataset_dict("train", rng, extension="wav")
-    val_dict = dataset.get_dataset_dict("val", rng, extension="wav")
-    test_dict = dataset.get_dataset_dict("test", rng, extension="wav")
+        train_dict = dataset.get_dataset_dict("train", rng)
+        val_dict = dataset.get_dataset_dict("val", rng)
+        test_dict = dataset.get_dataset_dict("test", rng)
 
-    for ds, ds_dict in zip(
-        (train_ds_audio, val_ds_audio, test_ds_audio), (train_dict, val_dict, test_dict)
-    ):
-        for i, batch in enumerate(ds.take(32)):
-            assert batch["inputs"].shape == (22050 * 5, 1)
-            assert batch["labels"] == ds_dict["labels"][i]
-            assert batch["id"] == ds_dict["id"][i]
-            assert batch["_file"] == ds_dict["_file"][i]
+        for ds, ds_dict in zip(
+            (train_ds, val_ds, test_ds), (train_dict, val_dict, test_dict)
+        ):
+            for i, batch in enumerate(ds.take(32)):
+                assert batch["inputs"].shape == (256, 423, 1)
+                assert batch["labels"] == ds_dict["labels"][i]
+                assert batch["id"] == ds_dict["id"][i]
+                assert batch["_file"] == ds_dict["_file"][i]
+
+        train_ds_audio = dataset.get_tensorflow_dataset("train", rng, extension="wav")
+        val_ds_audio = dataset.get_tensorflow_dataset("val", rng, extension="wav")
+        test_ds_audio = dataset.get_tensorflow_dataset("test", rng, extension="wav")
+
+        train_dict = dataset.get_dataset_dict("train", rng, extension="wav")
+        val_dict = dataset.get_dataset_dict("val", rng, extension="wav")
+        test_dict = dataset.get_dataset_dict("test", rng, extension="wav")
+
+        for ds, ds_dict in zip(
+            (train_ds_audio, val_ds_audio, test_ds_audio),
+            (train_dict, val_dict, test_dict),
+        ):
+            for i, batch in enumerate(ds.take(32)):
+                assert batch["inputs"].shape == (22050 * 5, 1)
+                assert batch["labels"] == ds_dict["labels"][i]
+                assert batch["id"] == ds_dict["id"][i]
+                assert batch["_file"] == ds_dict["_file"][i]
 
 
 def test_tf2jax():
-
     a = {
         "inputs": tf.random.uniform((10, 256, 256, 3)),
         "labels": tf.random.uniform((10,), minval=0, maxval=13, dtype=tf.int32),
@@ -267,7 +264,6 @@ def test_split_rng():
 
 
 def test_prepare_image():
-
     rng = jax.random.PRNGKey(0)
     img = jax.random.randint(rng, (10, 1000, 128, 1), 0, 2**16 - 1, dtype=jnp.uint16)
 
@@ -310,7 +306,7 @@ def test_one_hot_encode():
 
 @pytest.mark.parametrize("num_classes", [2, 12, 13])
 def test_get_class_weights(num_classes):
-    settings.from_dict(
+    with settings.Settings(
         {
             "data_dir": "data",
             "labels_file": "labels.csv",
@@ -332,19 +328,19 @@ def test_get_class_weights(num_classes):
             ],
             "class_order_2": ["bird", "frog"],
         }
-    )
-    weights = dataset.get_class_weights(num_classes=num_classes)
-    classes, class_idx_fn = dataset.get_classes(num_classes=num_classes)
-    assert len(weights) == num_classes
+    ):
+        weights = dataset.get_class_weights(num_classes=num_classes)
+        classes, class_idx_fn = dataset.get_classes(num_classes=num_classes)
+        assert len(weights) == num_classes
 
-    df = pd.read_csv("data/labels.csv")
-    df = df[df["exists"]]
+        df = pd.read_csv("data/labels.csv")
+        df = df[df["exists"]]
 
-    if num_classes != 13:
-        df = df[df["class"] != "other"]
+        if num_classes != 13:
+            df = df[df["class"] != "other"]
 
-    class_ids = df["class"].map(class_idx_fn)
+        class_ids = df["class"].map(class_idx_fn)
 
-    class_freqs = class_ids.value_counts(normalize=True).sort_index().to_numpy()
+        class_freqs = class_ids.value_counts(normalize=True).sort_index().to_numpy()
 
-    assert jnp.allclose(class_freqs * weights, 1 / num_classes)
+        assert jnp.allclose(class_freqs * weights, 1 / num_classes)
