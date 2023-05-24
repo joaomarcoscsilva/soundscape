@@ -1,10 +1,12 @@
 import tensorflow as tf
+import pickle
 import jax
 import pandas as pd
 import numpy as np
 from jax import random, numpy as jnp
 import os
 from glob import glob
+import scipy.special as sc
 
 from .settings import settings_fn
 from .composition import Composable
@@ -67,7 +69,7 @@ def get_classes(*, class_order, class_order_2, num_classes):
         classes.remove("other")
         return class_order_2, lambda x: int(classes.index(x) >= 6)
 
-    raise ValueError("Invalid number of classes")
+    return classes, classes.index
 
 
 @settings_fn
@@ -113,7 +115,7 @@ def get_dataset_dict(
 
     # Get the list of classes
     classes = [c for c in class_order]
-    if num_classes != 13:
+    if num_classes != 13 and "other" in classes:
         classes.remove("other")
 
     # Get the function that maps a class name to a class id
@@ -128,7 +130,7 @@ def get_dataset_dict(
 
     for cls in classes:
         # Get the list of files in the current class directory
-        files = glob(os.path.join(dataset_dir, cls, f"*.{extension}"))
+        files = glob(os.path.join(dataset_dir, str(cls), f"*.{extension}"))
 
         # Add the files to the dataset dictionary
         for f in sorted(files):

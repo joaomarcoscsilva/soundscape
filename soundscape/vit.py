@@ -47,8 +47,14 @@ def vit(rng, *, initialization, num_classes, trainable_weights, convert_tf_param
 
     if convert_tf_params:
         with open("vit_b16.pkl", "rb") as f:
-            params = pickle.load(f)
-            params = jax.tree_util.tree_map(lambda x: jnp.array(x), params)
+            tf_params = pickle.load(f)
+
+        if num_classes != 12:
+            params["vit"] = jax.tree_util.tree_map(
+                lambda x: jnp.array(x), tf_params["vit"]
+            )
+        else:
+            params = jax.tree_util.tree_map(lambda x: jnp.array(x), tf_params)
 
     # Partition the parameters into trainable and fixed
     params, fixed_params = hk.data_structures.partition(

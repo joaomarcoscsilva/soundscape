@@ -37,8 +37,9 @@ class Settings:
         parser = argparse.ArgumentParser()
 
         parser.add_argument(
-            "settings", type=str, help="YAML settings file", default=None
+            "settings", type=str, help="YAML settings file", default=None, nargs="+"
         )
+
         parser.add_argument(
             "-k",
             "--key",
@@ -53,8 +54,9 @@ class Settings:
         settings_dict = {}
 
         if args.settings is not None:
-            with open(args.settings, "r") as f:
-                settings_dict = yaml.safe_load(f)
+            for filename in args.settings:
+                with open(filename, "r") as f:
+                    settings_dict = {**settings_dict, **yaml.safe_load(f)}
 
         settings_dict = {**settings_dict, **{k: yaml.safe_load(v) for k, v in args.key}}
 

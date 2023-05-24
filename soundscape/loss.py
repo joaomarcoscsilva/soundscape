@@ -31,6 +31,15 @@ def crossentropy(values):
     )
 
 
+def brier(values):
+    logits = values["logits"]
+    labels = values["one_hot_labels"]
+
+    probs = jax.nn.softmax(logits)
+
+    return jnp.sum((probs - labels) ** 2, axis=-1)
+
+
 def preds(weights=None):
     """
     Return a function that returns the predictions from the logits.
@@ -74,12 +83,18 @@ def augmix_loss(loss_fn, num_repetitions=3, l=1.0):
     return augmix_loss
 
 
-def accuracy(values):
+def accuracy(preds_key):
     """
-    Compute the accuracy from labels and predictions.
+    Return a function that computes the accuracy of the predictions.
+
+    Args:
+        labels_key: The key of the labels in the values dictionary.
     """
 
-    return jnp.float32(values["preds"] == values["labels"])
+    def _accuracy(values):
+        return jnp.float32(values[preds_key] == values["labels"])
+
+    return _accuracy
 
 
 def weighted(metric_function, class_weights=None):

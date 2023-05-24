@@ -10,6 +10,7 @@ import os
 
 from soundscape import (
     augment,
+    calibrate,
     dataset,
     resnet,
     vit,
@@ -136,73 +137,99 @@ def get_optimizer(
 
 
 @settings_fn
-def get_call_functions(call_fn, optim, pbar_len):
+def get_metrics_function(call_fn):
+    weights = dataset.get_class_weights()
+
+    metrics_fn = (
+        call_fn
+        | Composable(loss.mean(loss.crossentropy), "loss")
+        | Composable(loss.preds(weights), "preds")
+        | Composable(loss.preds(), "preds_nb")
+        | Composable(loss.accuracy("preds"), "acc")
+        | Composable(loss.accuracy("preds_nb"), "acc_nb")
+        | Composable(loss.weighted(loss.accuracy("preds"), weights), "bal_acc")
+        | Composable(loss.weighted(loss.accuracy("preds_nb"), weights), "bal_acc_nb")
+        | Composable(loss.crossentropy, "ce_loss")
+        | Composable(loss.brier, "brier")
+    )
+
+    return metrics_fn
+
+
+@settings_fn
+def get_call_functions(
+    metrics_fn, optim, train_ds, val_ds, test_ds, *, evaluate_on_test
+):
     logged_keys = [
         "ce_loss",
+        "brier",
         "acc",
-        "bal_ce_loss",
+        "acc_nb",
         "bal_acc",
+        "bal_acc_nb",
         "epoch",
         "id",
         "labels",
         "preds",
+        "preds_nb",
         "logits",
         "one_hot_labels",
     ]
-    pbar_keys = ["epoch", "ce_loss", "bal_acc", "val_ce_loss", "val_bal_acc"]
+    pbar_keys = [
+        "epoch",
+        "ce_loss",
+        "bal_acc",
+        "val_ce_loss",
+        "val_bal_acc",
+        "val_acc_nb",
+    ]
     pbar_every = 11
+    pbar_len = len(train_ds) + len(val_ds) + (len(test_ds) if evaluate_on_test else 0)
 
-    weights = dataset.get_class_weights()
-
-    evaluate = (
-        call_fn
-        | Composable(loss.mean(loss.crossentropy), "loss")
-        | Composable(loss.preds(weights), "preds")
-        | Composable(loss.crossentropy, "ce_loss")
-        | Composable(loss.accuracy, "acc")
-        | Composable(loss.weighted(loss.accuracy, weights), "bal_acc")
-        | Composable(loss.weighted(loss.crossentropy, weights), "bal_ce_loss")
-    )
-
-    evaluate_and_grad = composition.grad(evaluate, "params", "loss")
+    evaluate_and_grad = composition.grad(metrics_fn, "params", "loss")
     train = evaluate_and_grad | training.update(optim)
 
     train = composition.jit(train, static_keys=["is_training"])
-    evaluate = composition.jit(evaluate, static_keys=["is_training"])
+    evaluate = composition.jit(metrics_fn, static_keys=["is_training"])
 
     track_progress = log.count_steps | log.track_progress(
         pbar_keys, pbar_every, pbar_len
     )
 
     train = train | log.track(logged_keys) | track_progress
+    test = evaluate | log.track(logged_keys, prefix="test_") | track_progress
     evaluate = evaluate | log.track(logged_keys, prefix="val_") | track_progress
 
-    return train, evaluate
+    return train, evaluate, test
 
 
 @settings_fn
 def get_log_function():
+    mean_metrics = [
+        "ce_loss",
+        "brier",
+        "val_ce_loss",
+        "val_brier",
+        "bal_acc",
+        "val_bal_acc",
+        "bal_acc_nb",
+        "val_bal_acc_nb",
+    ]
+
     log_function = (
         log.stack_epoch_logs
-        | log.mean_over_epoch(["ce_loss", "bal_acc", "val_ce_loss", "val_bal_acc"])
+        | log.mean_over_epoch(mean_metrics)
         | log.save_logs
         | log.save_params
+        | log.stop_if_nan(mean_metrics)
+        | log.stop_if_no_improvement()
     )
 
     return log_function
 
 
 @settings_fn
-def train(
-    *,
-    training_seed,
-    epochs,
-    name,
-    optimizing_metric,
-    optimizing_mode,
-    give_up_after,
-    give_up_threshold,
-):
+def train(*, training_seed, epochs, name, evaluate_on_test):
     print(f"Training {name} for {epochs} epochs")
 
     rng = random.PRNGKey(training_seed)
@@ -213,7 +240,11 @@ def train(
     preprocess_train, preprocess_val = get_preprocess_functions()
     call_fn, values = get_model(rng_net)
     optim, values = get_optimizer(values, len(train_ds))
-    train, evaluate = get_call_functions(call_fn, optim, len(train_ds) + len(val_ds))
+    metrics_fn = get_metrics_function(call_fn)
+    train, evaluate, test = get_call_functions(
+        metrics_fn, optim, train_ds, val_ds, test_ds
+    )
+
     log_function = get_log_function()
 
     values["rng"] = rng
@@ -229,27 +260,21 @@ def train(
             values = preprocess_val({**values, **batch})
             values = evaluate({**values, "is_training": False})
 
+        if evaluate_on_test:
+            old_rng = values["rng"]
+
+            for batch in test_ds:
+                values = preprocess_val({**values, **batch})
+                values = test({**values, "is_training": False})
+
+            values["rng"] = old_rng
+
         values = log_function(values)
 
-        for metric in [
-            "mean_ce_loss",
-            "mean_bal_acc",
-            "mean_val_ce_loss",
-            "mean_val_bal_acc",
-        ]:
-            if metric in values["_epoch_logs"]:
-                if jnp.isnan(values["_epoch_logs"][metric][-1]):
-                    print(f"Early stopping at epoch {e} because of a NaN in {metric}")
-                    return values["_epoch_logs"]
-
-        if (e + 1) % give_up_after == 0:
-            sign = 1 if optimizing_mode == "max" else -1
-            last_metric = values["_epoch_logs"][optimizing_metric][-1]
-            if sign * last_metric < sign * give_up_threshold:
-                print(
-                    f"Early stopping at epoch {e} because of slow convergence: {optimizing_metric} = {last_metric}"
-                )
-                return values["_epoch_logs"]
+        if "_stop" in values:
+            print("Early stopping:", values["_stop"])
+            values.pop("_stop")
+            break
 
     return values["_epoch_logs"]
 

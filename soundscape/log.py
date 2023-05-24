@@ -6,7 +6,6 @@ from tqdm import tqdm
 from jax import numpy as jnp
 import jax
 from tqdm import tqdm
-from itertools import chain
 import pickle
 import haiku as hk
 
@@ -76,6 +75,14 @@ def format_digits(val, digits=6):
         return f"{val:.{max(digits - integer_len - 1, 0)}f}"
 
 
+def all_keys(list_of_dicts):
+    """
+    Return the set of keys in a list of dictionaries.
+    """
+
+    return {key for d in list_of_dicts for key in d}
+
+
 def merge_logs(logs, mode):
     """
     Merge a list of logs into a single dictionary.
@@ -108,7 +115,7 @@ def merge_logs(logs, mode):
     # Merge the logs
     merged = {
         key: merge_fn([log[key] for log in logs if key in log])
-        for key in set(logs[0]) | set(logs[-1])
+        for key in all_keys(logs)
     }
 
     return merged
@@ -144,7 +151,7 @@ def track_progress(keys, every=1, total=None):
         # Get the progress bar, or create a new one
         tqdm_bar = values.get("_tqdm", None)
         if tqdm_bar is None:
-            tqdm_bar = tqdm(total=total, ncols=140)
+            tqdm_bar = tqdm(total=total, ncols=160)
 
         # Update the progress bar, if needed
         if step % every == 0 or (step + 1) % total == 0:
@@ -216,7 +223,7 @@ def stack_epoch_logs(values):
 
 @Composable
 @settings.settings_fn
-def save_logs(values, *, name, save_log, save_settings):
+def save_logs(values, *, name, save_log):
     """
     Save the logs to a file.
     """
@@ -240,12 +247,8 @@ def save_params(
     if not save_weights:
         return values
 
-    # Get the model parameters
-    params = values["params"]
-    fixed_params = values["fixed_params"]
-
-    # Merge the parameters
-    params = hk.data_structures.merge(params, fixed_params)
+    keys = ["params", "fixed_params", "state"]
+    to_save = {k: values[k] for k in keys if k in values}
 
     save = not early_stopping
 
@@ -265,6 +268,47 @@ def save_params(
 
     if save:
         with open(f"params/{name}.pkl", "wb") as f:
-            pickle.dump(params, f)
+            pickle.dump(to_save, f)
 
     return values
+
+
+@settings.settings_fn
+def stop_if_nan(nan_metrics):
+    """
+    Return a composable function that stops the training if any of the given
+    metrics is NaN.
+    """
+
+    @Composable
+    def _stop_if_nan(values):
+        for metric in nan_metrics:
+            if jnp.isnan(values["_epoch_logs"][metric][-1]).any():
+                return {**values, "_stop": f"NaN in {metric}"}
+
+        return values
+
+    return _stop_if_nan
+
+
+@settings.settings_fn
+def stop_if_no_improvement(
+    *, optimizing_mode, optimizing_metric, give_up_threshold, give_up_after
+):
+    """
+    Return a composable function that stops the training if the optimizing metric
+    is below a threshold after the given number of epochs.
+    """
+
+    sign = 1 if optimizing_mode == "max" else -1
+
+    @Composable
+    def _stop_if_no_improvement(values):
+        if values["epoch"] % give_up_after == 0:
+            last_metric = values["_epoch_logs"][optimizing_metric][-1]
+            if sign * last_metric < sign * give_up_threshold:
+                return {**values, "_stop": f"Slow convergence"}
+
+        return values
+
+    return _stop_if_no_improvement

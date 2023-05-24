@@ -10,8 +10,6 @@ import soundfile
 
 from soundscape import settings
 
-settings.from_file()
-
 
 def parallel_map(fn, iterable):
     """
@@ -28,7 +26,7 @@ def read_audio_file(filename, *, data_dir):
     Read an audio file and return the audio time series and its sampling rate
     """
 
-    audio, sr = librosa.load(os.path.join(data_dir, filename))
+    audio, sr = librosa.load(os.path.join(data_dir, filename), res_type="fft")
     return audio
 
 
@@ -156,8 +154,6 @@ def extract_spectrograms_from_file(df_file):
     # Read the audio file
     audio = read_audio_file(df_file[0])
 
-    breakpoint()
-
     # For each event in the file, crop the audio and compute the spectrogram
     for row in df_file[1].iloc:
         cropped_audio = crop_audio_event(audio, row["begin_time"], row["end_time"])
@@ -170,7 +166,6 @@ def extract_spectrograms_from_file(df_file):
 
 @settings.settings_fn
 def extract_spectrograms(df):
-
     # Group the events belonging to the same file
     df_files = df.groupby("file")
 
@@ -182,14 +177,14 @@ def extract_spectrograms(df):
 
 
 @settings.settings_fn
-def split_class(df_class, rng, *, val_size, test_size):
+def split_array(array, rng, *, val_size, test_size):
     """
     Split a class into train, validation and test sets
     """
 
-    val_samples = int(len(df_class) * val_size)
-    test_samples = int(len(df_class) * test_size)
-    train_samples = len(df_class) - val_samples - test_samples
+    val_samples = int(len(array) * val_size)
+    test_samples = int(len(array) * test_size)
+    train_samples = len(array) - val_samples - test_samples
 
     splits = np.array(
         ["train"] * train_samples + ["val"] * val_samples + ["test"] * test_samples
@@ -201,22 +196,37 @@ def split_class(df_class, rng, *, val_size, test_size):
 
 
 @settings.settings_fn
-def split_dataset(df, *, split_seed):
+def split_dataset(df, *, split_seed, stratify):
+    if stratify:
+        # Group the events belonging to the same class
+        df_classes = df.groupby("class")
 
-    # Group the events belonging to the same class
-    df_classes = df.groupby("class")
+        rng = random.PRNGKey(split_seed)
 
-    rng = random.PRNGKey(split_seed)
+        for class_id, df_class in df_classes:
+            rng, split_rng = random.split(rng)
+            splits = split_array(df_class, split_rng)
+            df.loc[df_class.index, "split"] = splits
 
-    for class_id, df_class in df_classes:
-        rng, split_rng = random.split(rng)
-        splits = split_class(df_class, split_rng)
-        df.loc[df_class.index, "split"] = splits
+    else:
+        # Group by file
+        df_files = list(df.groupby("file"))
+
+        # Shuffle
+        rng = random.PRNGKey(split_seed)
+
+        # Split
+        splits = split_array(df_files, rng)
+
+        # Assign the splits to the dataframe
+        for i, (file_name, df_file) in enumerate(df_files):
+            df.loc[df_file.index, "split"] = splits[i]
 
     return df
 
 
 if __name__ == "__main__":
-    df = load_df()
-    df = split_dataset(df)
-    extract_spectrograms(df)
+    with settings.Settings.from_command_line():
+        df = load_df()
+        df = split_dataset(df)
+        extract_spectrograms(df)
