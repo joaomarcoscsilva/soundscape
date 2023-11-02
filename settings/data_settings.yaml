@@ -25,7 +25,11 @@ spectrogram_config:
 lower_threshold: -25
 upper_threshold: 35
 
+class_order: [ "other", "basi_culi", "myio_leuc", "vire_chiv", "cycl_guja", "pita_sulp", "zono_cape", "dend_minu", "apla_leuc", "isch_guen", "phys_cuvi", "boan_albo", "aden_marm"]
+class_order_2: ["bird", "frog"]
+
+extension: png
+
 precision: 16
 
 segment_length: 5
-pad_mode: reflect

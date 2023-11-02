@@ -1,0 +1,88 @@
+
+# Data preprocessing settings
+# ===
+
+split_seed: 0
+val_size: 0.2
+test_size: 0.2
+
+data_dir: data
+spectrogram_dir: leec
+labels_file: labels.csv
+
+sr: 22050
+
+spectrogram_config:
+    n_fft: 2048
+    hop_length: 256
+    win_length: 2048
+    window: hamming
+    center: False
+    pad_mode: null
+    power: 1.0
+    n_mels: 256
+    fmin: 10
+    fmax: 11025
+    htk: False
+    norm: null
+
+lower_threshold: -25
+upper_threshold: 35
+
+class_order: [ "other", "basi_culi", "myio_leuc", "vire_chiv", "cycl_guja", "pita_sulp", "zono_cape", "dend_minu", "apla_leuc", "isch_guen", "phys_cuvi", "boan_albo", "aden_marm"]
+class_order_2: ["bird", "frog"]
+
+extension: png
+
+precision: 16
+
+segment_length: 5
+
+# ===
+# Model training settings
+# ===
+
+training_seed: 0
+
+cropped_length: 3
+pad_mode: reflect
+
+num_classes: 12
+
+optim_name: sgd
+model_name: vit_base
+initialization: google/vit-base-patch16-224-in21k
+convert_tf_params: true
+trainable_weights: all
+epochs: 100
+always_mutable_bn: false
+
+crop_type: deterministic
+cutout_alpha: null
+mixup_alpha: null
+cutmix_alpha: null
+
+batch_size: 128
+log_learning_rate: -1.2164616584777832
+log_weight_decay: -2.2815823554992676
+sub_log_momentum: -1.1106059551239014
+
+save_weights: false
+early_stopping: false
+optimizing_metric: mean_val_bal_acc
+optimizing_mode: max
+give_up_after: 15
+give_up_threshold: 0.1
+
+save_log: false
+
+hpsearch_ranges:
+    training_seed: {0,1,2,3,4}
+
+hpsearch_iterations: 5
+hpsearch_function: grid
+hpsearch_seed: 0
+hpsearch_indices: {}
+hpsearch_begin: 0
+
+evaluate_on_test: false

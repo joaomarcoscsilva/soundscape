@@ -20,6 +20,8 @@ sn.set_style("darkgrid")
 
 plt.rcParams["figure.dpi"] = 300
 
+with settings.Settings.from_file("settings/supervised.yaml"):
+    ws = dataset.get_class_weights()
 
 def transform(params, logits):
     return logits * params["w"] + params["b"]
@@ -95,7 +97,7 @@ def stack_array(x, *ks):
     def gt(v):
         for k in ks:
             v = v[k]
-        v = np.pad(v, ((0, 100 - v.shape[0]), *[(0, 0)] * (v.ndim - 1)), mode="edge")
+        v = np.pad(v, ((0, 512 - v.shape[0]), *[(0, 0)] * (v.ndim - 1)), mode="edge")
         return v
 
     return np.stack([gt(i) for i in x])
@@ -120,21 +122,41 @@ def load_file(filename):
     }
 
     train_logits = stack_array(x, "logs", "logits")
-    train_labels = stack_array(x, "logs", "labels")
+    # train_labels = stack_array(x, "logs", "labels")
     train_one_hot_labels = stack_array(x, "logs", "one_hot_labels")
+    # train_id = stack_array(x, "logs", "id")
 
     val_logits = stack_array(x, "logs", "val_logits")
-    val_labels = stack_array(x, "logs", "val_labels")
+    # val_labels = stack_array(x, "logs", "val_labels")
     val_one_hot_labels = stack_array(x, "logs", "val_one_hot_labels")
+    # val_id = stack_array(x, "logs", "val_id")
 
     if "test_logits" in x[0]["logs"]:
         test_logits = stack_array(x, "logs", "test_logits")
-        test_labels = stack_array(x, "logs", "test_labels")
+        # test_labels = stack_array(x, "logs", "test_labels")
         test_one_hot_labels = stack_array(x, "logs", "test_one_hot_labels")
+        # test_id = stack_array(x, "logs", "test_id")
     else:
         test_logits = val_logits
-        test_labels = val_labels
+        # test_labels = val_labels
         test_one_hot_labels = val_one_hot_labels
+        # test_id = val_id
+
+    train_labels = train_one_hot_labels.argmax(-1)
+    val_labels = val_one_hot_labels.argmax(-1)
+    test_labels = test_one_hot_labels.argmax(-1)
+
+    # train_logits = reorder_id(train_logits, train_id)
+    # train_labels = reorder_id(train_labels, train_id)
+    # train_one_hot_labels = reorder_id(train_one_hot_labels, train_id)
+
+    # val_logits = reorder_id(val_logits, val_id)
+    # val_labels = reorder_id(val_labels, val_id)
+    # val_one_hot_labels = reorder_id(val_one_hot_labels, val_id)
+
+    # test_logits = reorder_id(test_logits, test_id)
+    # test_labels = reorder_id(test_labels, test_id) 
+    # test_one_hot_labels = reorder_id(test_one_hot_labels, test_id)
 
     train_cal_logits = {
         cal_type: transform_batch(params[cal_type], train_logits) for cal_type in params
@@ -250,8 +272,8 @@ def compute_metrics(x, noplot=False, select_balacc=True):
 
     if not noplot:
         for k in x["logits"]:
-            epoch_labels = x["selected_nb"]["labels"][k]
-            epoch_logits = x["selected_nb"]["logits"][k]
+            epoch_labels = x["selected"]["labels"][k]
+            epoch_logits = x["selected"]["logits"][k]
             x["confusion_nb"][k] = confusion_nb(epoch_logits, epoch_labels)
 
             epoch_labels = x["selected"]["labels"][k]
@@ -298,8 +320,8 @@ def print_results(x, onlytest=False):
 
     def print_metric(split, metrics):
         for metric in metrics:
-            mean = x["selected_nb"][metric][split].mean()
-            std = x["selected_nb"][metric][split].std()
+            mean = x["selected"][metric][split].mean()
+            std = x["selected"][metric][split].std()
 
             if "acc" in metric:
                 mean *= 100
@@ -331,6 +353,7 @@ if __name__ == "__main__":
 
     parser.add_argument("filenames", nargs="+")
     parser.add_argument("--noplot", action="store_true", default=False)
+    parser.add_argument('--nosave', action='store_true', default=False)
     parser.add_argument("--dataset", default="leec")
     parser.add_argument("--onlytest", action="store_true", default=False)
 
@@ -359,9 +382,11 @@ if __name__ == "__main__":
         new_filename = os.path.join(
             os.path.dirname(filename), "metrics", os.path.basename(filename)
         )
-        os.makedirs(os.path.dirname(new_filename), exist_ok=True)
-        with open(new_filename, "wb") as f:
-            pickle.dump(x, f)
+
+        if not args.nosave:
+            os.makedirs(os.path.dirname(new_filename), exist_ok=True)
+            with open(new_filename, "wb") as f:
+                pickle.dump(x, f)
 
         if args.noplot:
             continue

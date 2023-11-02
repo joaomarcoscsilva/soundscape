@@ -21,6 +21,9 @@ import argparse
 from jax.scipy.special import logsumexp
 
 
+with settings.Settings.from_file("settings/supervised.yaml"):
+    ws = dataset.get_class_weights()
+
 @jax.jit
 def balacc(logits, labels):
     probs = jax.nn.softmax(logits) * ws
@@ -63,7 +66,6 @@ def calibrate(temperature_dim, bias_dim):
         params = {
             "w": jnp.ones(max(1, temperature_dim)),
             "b": jnp.zeros(bias_dim),
-            "bb": 0.0,
         }
 
         optim = optax.adam(1e-3)
@@ -87,19 +89,6 @@ def calibrate(temperature_dim, bias_dim):
 
     return _calibrate
 
-
-def calibrate_best(logs_list):
-    for logs in tqdm(logs_list):
-        best_epoch = logs["best_epoch"]
-        logits = logs["logs"]["val_logits"][best_epoch]
-        labels = logs["logs"]["val_labels"][best_epoch]
-        params = calibrate(logits, labels)
-        logs["best_calibration"] = params
-        logs["best_calibrated_logits"] = transform(params, logits)
-        logs["best_calibrated_labels"] = labels
-    return logs_list
-
-
 def calibrate_all(logs_list):
     cal_scalar_nobias = jax.jit(jax.vmap(calibrate(1, 1)))
     cal_vector_nobias = jax.jit(jax.vmap(calibrate(num_classes, 1)))
@@ -122,7 +111,7 @@ def calibrate_all(logs_list):
         itertools.product(logs_list, fns.items()), total=len(logs_list) * len(fns)
     ):
         logits = logs["logs"]["val_logits"]
-        labels = logs["logs"]["val_labels"]
+        labels = logs["logs"]["val_one_hot_labels"].argmax(-1)
 
         logs["calibration"][key] = fn(logits, labels)
 
@@ -154,6 +143,9 @@ if __name__ == "__main__":
     for k in args.files:
         with open(k, "rb") as f:
             x = pickle.load(f)
+
+        if not isinstance(x, list): 
+            x = [{'logs':x}]
 
         x = calibrate_all(x)
 

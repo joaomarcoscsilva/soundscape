@@ -99,14 +99,23 @@ def jit(function, static_keys=[], ignored_keys=[]):
     # JIT compile the helper function
     jitted_function = jax.jit(jittable_function, static_argnums=1)
 
+    input_keys = None
+
     @Composable
     def _function(values):
         """
         The JIT compiled function.
         """
+        nonlocal input_keys
+
+        if input_keys is None:
+            # Get the keys of the input dictionary
+            input_keys = values.keys()
 
         # Add the keys that start with an underscore to the list of ignored keys
-        _ignored_keys = ignored_keys + [k for k in values.keys() if k[0] == "_"]
+        _ignored_keys = ignored_keys + [
+            k for k in values.keys() if k[0] == "_" or k not in input_keys
+        ]
 
         # Split the dictionary into static, ignored and dynamic values
         values, static_values = split_dict(values, static_keys)
@@ -116,10 +125,50 @@ def jit(function, static_keys=[], ignored_keys=[]):
         values = jitted_function(values, hashable_dict(static_values))
 
         # Return the combined values
-        return {**values, **ignored_values, **static_values}
+        return {**ignored_values, **values, **static_values}
 
     return _function
 
+
+def vmap(function, vmapped_keys, in_axes=0):
+    """
+    Vectorize a composable function.
+
+    Parameters:
+    ----------
+    function: Composable
+        The function to be vectorized.
+
+    vmapped_keys: list
+        The keys that will be vectorized.
+
+    Returns:
+    ----------
+    Composable
+        The vectorized function.
+    """
+
+    # Define a helper function that can be vectorized directly by jax.vmap
+    def vmappable_function(vmapped_values, non_vmapped_values):
+        return function({**vmapped_values, **non_vmapped_values})
+
+    # Vectorize the helper function
+    vmapped_function = jax.vmap(vmappable_function, in_axes=(in_axes, None))
+
+    @Composable
+    def _function(values):
+        """
+        The VMapped function.
+        """
+
+        values, vmapped_values = split_dict(values, vmapped_keys)
+        values = vmapped_function(vmapped_values, values)
+
+        return values
+        
+    return _function
+
+        
 
 def grad(function, input_key: str, output_key: str):
     """

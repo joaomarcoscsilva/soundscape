@@ -34,6 +34,7 @@ class AddLogits(nn.Module):
 @settings_fn
 def resnet(
     rng,
+    return_values=True,
     *,
     model_name,
     initialization,
@@ -74,6 +75,7 @@ def resnet(
     else:
         ResNet = lambda: getattr(jax_resnet.resnet, f"ResNet{num_layers}")(n_classes=1)
         variables = ResNet().init(rng, jnp.zeros((1, 224, 224, 3)))
+        variables = jax_resnet.common.slice_variables(variables, end=-1)
 
     # Create a classifier head
     classifier = nn.Dense(num_classes, name="logits")

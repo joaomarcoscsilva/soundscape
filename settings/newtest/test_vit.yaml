@@ -1,0 +1,21 @@
+model_name: vit_base
+initialization: google/vit-base-patch16-224-in21k
+convert_tf_params: true
+
+batch_size: 128
+
+log_learning_rate: -1.1307461261749268
+log_weight_decay: -0.19910097122192383
+sub_log_momentum: -1.5304791927337646
+
+mixup_alpha: 1.0
+cutmix_alpha: 0.6
+    
+hpsearch_ranges:
+    training_seed: {0, 1, 2, 3, 4}
+
+hpsearch_seed: 0
+hpsearch_iterations: 5
+hpsearch_function: grid
+
+evaluate_on_test: false

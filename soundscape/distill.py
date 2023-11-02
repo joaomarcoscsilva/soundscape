@@ -19,6 +19,7 @@ from soundscape import (
     composition,
     settings,
     log,
+    supervised
 )
 
 from soundscape.composition import Composable, identity
@@ -26,62 +27,36 @@ from soundscape.settings import settings_fn
 
 
 @settings_fn
-def get_soundscape_dataset(rng, *, batch_size):
-    rng_train_ds, rng_val_ds, rng_test_ds = random.split(rng, 3)
+def get_u_dataset(rng, *, batch_size):
 
     ds = (
-        dataset.get_tensorflow_dataset("train", rng_train_ds)
-        .cache()
-        .shuffle(10000, seed=rng_train_ds[0])
+        dataset.get_distill_dataset(rng)
+        .map(dataset.split_image)
+        .unbatch()
+        .shuffle(1000, seed=rng[0])
         .batch(batch_size)
-        .prefetch(tf.data.experimental.AUTOTUNE)
     )
 
-    val_ds = (
-        dataset.get_tensorflow_dataset("val", rng_val_ds)
-        .shuffle(100, seed=rng_val_ds[0])
-        .batch(batch_size)
-        .cache()
-        .prefetch(tf.data.experimental.AUTOTUNE)
-    )
+    return ds
 
-    test_ds = (
-        dataset.get_tensorflow_dataset("test", rng_test_ds)
-        .shuffle(100, seed=rng_test_ds[0])
-        .batch(batch_size)
-        .cache()
-        .prefetch(tf.data.experimental.AUTOTUNE)
-    )
 
-    return ds, val_ds, test_ds
 
 
 @settings_fn
-def get_preprocess_functions(*, cutout_alpha, cutmix_alpha, mixup_alpha, crop_type):
-    preprocess_train = (
+def get_u_preprocess_function(*, cutout_alpha, cutmix_alpha, mixup_alpha, crop_type):
+    preprocess_u_train = (
         dataset.prepare_image
-        | dataset.one_hot_encode
         | dataset.split_rng
-        | augment.time_crop(crop_type=crop_type)
         | dataset.downsample_image
         | augment.cutout(cutout_alpha)
         | augment.cutmix(cutmix_alpha)
         | augment.mixup(mixup_alpha)
     )
 
-    preprocess_val = (
-        dataset.prepare_image
-        | dataset.one_hot_encode
-        | augment.time_crop(
-            crop_type="deterministic" if crop_type == "random" else crop_type
-        )
-        | dataset.downsample_image
-    )
 
-    preprocess_train = dataset.tf2jax | composition.jit(preprocess_train)
-    preprocess_val = dataset.tf2jax | composition.jit(preprocess_val)
+    preprocess_u_train = dataset.tf2jax | composition.jit(preprocess_u_train)
 
-    return preprocess_train, preprocess_val
+    return preprocess_u_train
 
 
 @settings_fn
@@ -104,11 +79,12 @@ def get_optimizer(
     sub_log_momentum,
     log_weight_decay,
 ):
-
     lr_schedule = optax.cosine_decay_schedule(
         init_value=10 ** (log_learning_rate),
         decay_steps=steps_per_epoch * epochs,
     )
+
+    print('Total steps:', steps_per_epoch * epochs)
 
     if optim_name == "adam":
         base_optim_transform = optax.scale_by_adam()
@@ -159,7 +135,7 @@ def get_metrics_function(call_fn):
 
 @settings_fn
 def get_call_functions(
-    metrics_fn, optim, train_ds, val_ds, test_ds, *, evaluate_on_test
+    metrics_fn, optim, train_ds, val_ds, test_ds, *, evaluate_on_test, u_batches
 ):
     logged_keys = [
         "ce_loss",
@@ -169,8 +145,8 @@ def get_call_functions(
         "bal_acc",
         "bal_acc_nb",
         "epoch",
-        "id",
-        "labels",
+        "preds",
+        "preds_nb",
         "logits",
         "one_hot_labels",
     ]
@@ -183,7 +159,7 @@ def get_call_functions(
         "val_acc_nb",
     ]
     pbar_every = 11
-    pbar_len = len(train_ds) + len(val_ds) + (len(test_ds) if evaluate_on_test else 0)
+    pbar_len = u_batches + len(train_ds) + len(val_ds) + (len(test_ds) if evaluate_on_test else 0)
 
     evaluate_and_grad = composition.grad(metrics_fn, "params", "loss")
     train = evaluate_and_grad | training.update(optim)
@@ -228,18 +204,22 @@ def get_log_function():
 
 
 @settings_fn
-def train(*, training_seed, epochs, name, evaluate_on_test):
+def train(*, training_seed, epochs, name, evaluate_on_test, u_batches):
     print(f"Training {name} for {epochs} epochs")
 
     rng = random.PRNGKey(training_seed)
     rng_ds, rng_net, rng = random.split(rng, 3)
 
-    train_ds, val_ds, test_ds = get_soundscape_dataset(rng_ds)
+    train_ds, val_ds, test_ds = supervised.get_soundscape_dataset(rng_ds)
+    train_u_ds = get_u_dataset(rng_ds)
 
-    preprocess_train, preprocess_val = get_preprocess_functions()
+    breakpoint()
+
+    preprocess_train, preprocess_val = supervised.get_preprocess_functions()
+    preprocess_u_train = get_u_preprocess_function()
 
     call_fn, values = get_model(rng_net)
-    optim, values = get_optimizer(values, len(train_ds))
+    optim, values = get_optimizer(values, len(train_ds) + u_batches)
     metrics_fn = get_metrics_function(call_fn)
     train, evaluate, test = get_call_functions(
         metrics_fn, optim, train_ds, val_ds, test_ds
@@ -251,6 +231,10 @@ def train(*, training_seed, epochs, name, evaluate_on_test):
 
     for e in tqdm(range(epochs), position=1, ncols=140, smoothing=0.9):
         values["epoch"] = jnp.array([e + 1])
+
+        for batch in train_u_ds.take(u_batches):
+            values = preprocess_u_train({**values, **batch})
+            values = train({**values, "is_training": True})
 
         for batch in train_ds:
             values = preprocess_train({**values, **batch})

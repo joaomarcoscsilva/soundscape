@@ -1,5 +1,6 @@
 import argparse
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import pickle
 import jax
 from jax import numpy as jnp
@@ -18,9 +19,9 @@ def bin_labels(labels):
 
 
 def bin_one_hot(one_hot_labels):
-    class0 = one_hot_labels[:, :6].sum(axis=1)
-    class1 = one_hot_labels[:, 6:].sum(axis=1)
-    one_hot_labels = jnp.stack([class0, class1], axis=1)
+    class0 = one_hot_labels[..., :6].sum(axis=-1)
+    class1 = one_hot_labels[..., 6:].sum(axis=-1)
+    one_hot_labels = jnp.stack([class0, class1], axis=-1)
     return one_hot_labels
 
 
@@ -35,14 +36,17 @@ if __name__ == "__main__":
         with open(k, "rb") as f:
             x = pickle.load(f)
 
+        if not isinstance(x, list): 
+            x = [{'logs':x}]
+
         for i in range(len(x)):
             x[i]["logs"]["logits"] = binarize_logits(x[i]["logs"]["logits"])
             x[i]["logs"]["val_logits"] = binarize_logits(x[i]["logs"]["val_logits"])
             x[i]["logs"]["test_logits"] = binarize_logits(x[i]["logs"]["test_logits"])
 
-            x[i]["logs"]["labels"] = bin_labels(x[i]["logs"]["labels"])
-            x[i]["logs"]["val_labels"] = bin_labels(x[i]["logs"]["val_labels"])
-            x[i]["logs"]["test_labels"] = bin_labels(x[i]["logs"]["test_labels"])
+            #x[i]["logs"]["labels"] = bin_labels(x[i]["logs"]["labels"])
+            #x[i]["logs"]["val_labels"] = bin_labels(x[i]["logs"]["val_labels"])
+            #x[i]["logs"]["test_labels"] = bin_labels(x[i]["logs"]["test_labels"])
 
             x[i]["logs"]["one_hot_labels"] = bin_one_hot(x[i]["logs"]["one_hot_labels"])
             x[i]["logs"]["val_one_hot_labels"] = bin_one_hot(

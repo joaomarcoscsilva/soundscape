@@ -92,7 +92,7 @@ def accuracy(preds_key):
     """
 
     def _accuracy(values):
-        return jnp.float32(values[preds_key] == values["labels"])
+        return jnp.float32(values[preds_key] == values["one_hot_labels"].argmax(axis=-1))
 
     return _accuracy
 
@@ -106,7 +106,7 @@ def weighted(metric_function, class_weights=None):
     if class_weights is None:
         return metric_function
 
-    return lambda values: metric_function(values) * class_weights[values["labels"]]
+    return lambda values: metric_function(values) * class_weights[values["one_hot_labels"].argmax(axis=-1)]
 
 
 def mean(function):

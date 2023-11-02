@@ -18,7 +18,7 @@ if __name__ == "__main__":
         with open(mf, "rb") as f:
             metrics = pickle.load(f)
 
-        best = metrics["selected"]["balacc"]["val_vector_bias"].argmax()
+        best = metrics["selected_nb"]["balacc"]["val"].argmax()
         print(f"{ff}: {best}")
 
         setts = data[best]["changed_settings"]
