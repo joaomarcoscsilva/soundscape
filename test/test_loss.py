@@ -64,7 +64,8 @@ def test_accuracy():
     logits = jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
     preds = loss.preds()({"logits": logits})
     labels = jnp.array([1, 1, 0])
-    acc = loss.accuracy({"preds": preds, "labels": labels})
+    one_hot_labels = jnp.eye(3)[labels]
+    acc = loss.accuracy("preds")({"preds": preds, "one_hot_labels": one_hot_labels})
     assert jnp.allclose(acc, jnp.array([0, 1, 1]))
 
 
@@ -72,12 +73,13 @@ def test_weighted():
     logits = jnp.array([[1.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
     preds = loss.preds()({"logits": logits})
     labels = jnp.array([2, 1, 0])
+    one_hot_labels = jnp.eye(3)[labels]
 
     weights = jnp.array([1.0, 2.0, 3.0])
 
-    weighted_acc = loss.weighted(loss.accuracy, weights)
+    weighted_acc = loss.weighted(loss.accuracy("preds"), weights)
 
-    acc = weighted_acc({"preds": preds, "labels": labels})
+    acc = weighted_acc({"preds": preds, "one_hot_labels": one_hot_labels})
 
     assert jnp.allclose(acc, jnp.array([0.0, 2.0, 1.0]))
 
@@ -88,9 +90,10 @@ def test_mean():
     logits = jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
     preds = loss.preds()({"logits": logits})
     labels = jnp.array([1, 1, 0])
+    one_hot_labels = jnp.eye(3)[labels]
 
-    acc_fn = loss.mean(loss.accuracy)
+    acc_fn = loss.mean(loss.accuracy("preds"))
 
-    acc = acc_fn({"preds": preds, "labels": labels})
+    acc = acc_fn({"preds": preds, "one_hot_labels": one_hot_labels})
 
     assert jnp.allclose(acc, 2 / 3)

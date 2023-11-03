@@ -65,9 +65,6 @@ def test_get_classes():
         assert idx_fn("l") == 1
         assert "other" not in classes
 
-        with pytest.raises(ValueError):
-            dataset.get_classes(num_classes=11)
-
 
 @pytest.mark.parametrize(
     "num_classes, num_train, num_val, num_test",

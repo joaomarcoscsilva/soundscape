@@ -3,6 +3,7 @@ from jax import numpy as jnp
 import jax
 from .composition import Composable
 import optax
+import typing
 
 
 def kl(p1, p2):
@@ -21,14 +22,22 @@ def js(ps):
     return kl(ps, pm).mean(axis=0)
 
 
-def crossentropy(values):
+def crossentropy(logits: jnp.ndarray, one_hot_labels: jnp.ndarray) -> jnp.ndarray:
+    return optax.softmax_cross_entropy(logits=logits, labels=one_hot_labels)
+
+
+def crossentropy(output, *, logits="logits", one_hot_labels="one_hot_labels"):
     """
     Compute the cross-entropy loss.
     """
 
-    return optax.softmax_cross_entropy(
-        logits=values["logits"], labels=values["one_hot_labels"]
-    )
+    @Composable
+    def _crossentropy(step: State) -> State:
+        ce = optax.softmax_cross_entropy(
+            logits=step[logits], labels=step[one_hot_labels]
+        )
+
+    return _crossentropy
 
 
 def brier(values):
@@ -92,7 +101,9 @@ def accuracy(preds_key):
     """
 
     def _accuracy(values):
-        return jnp.float32(values[preds_key] == values["one_hot_labels"].argmax(axis=-1))
+        return jnp.float32(
+            values[preds_key] == values["one_hot_labels"].argmax(axis=-1)
+        )
 
     return _accuracy
 
@@ -106,7 +117,10 @@ def weighted(metric_function, class_weights=None):
     if class_weights is None:
         return metric_function
 
-    return lambda values: metric_function(values) * class_weights[values["one_hot_labels"].argmax(axis=-1)]
+    return (
+        lambda values: metric_function(values)
+        * class_weights[values["one_hot_labels"].argmax(axis=-1)]
+    )
 
 
 def mean(function):
