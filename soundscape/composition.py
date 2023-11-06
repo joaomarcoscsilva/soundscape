@@ -3,6 +3,7 @@ from functools import partial
 from typing import Any, Callable, Optional
 
 import jax
+import pydantic
 
 
 class State(dict):
@@ -306,7 +307,12 @@ class StateFunction(Composable):
     """
 
     def __init__(
-        self, fn, inputs: dict = {}, output: str | None = None, traceable=True
+        self,
+        fn,
+        inputs: dict = {},
+        output: str | None = None,
+        traceable=True,
+        typecheck=True,
     ):
         """
         Create a StateFunction object.
@@ -324,6 +330,15 @@ class StateFunction(Composable):
         self._output = output
         self._function_arguments = inspect.getfullargspec(fn).args
 
+        if typecheck:
+            self._wrapped_fn = pydantic.validate_call(
+                fn,
+                config=pydantic.ConfigDict(arbitrary_types_allowed=True, strict=True),
+                validate_return=True,
+            )
+        else:
+            self._wrapped_fn = self._fn
+
         def call_wrapped(state: State) -> State:
             """
             Wrap the function call, extracting its arguments from the state
@@ -334,7 +349,7 @@ class StateFunction(Composable):
             inputs = state.select_keys(self._function_arguments, key_map=self._inputs)
 
             # Call the function
-            output = self._fn(**inputs)
+            output = self._wrapped_fn(**inputs)
 
             if self._output is None:
                 # If the function returns a dictionary, add it to the state
