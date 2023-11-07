@@ -1,12 +1,12 @@
-from jax import numpy as jnp
-import jax
-from typing import Protocol, Union
-from jax import random
 from functools import partial
+from typing import Protocol, Union
 
-from .settings import settings_fn
+import jax
+from jax import numpy as jnp
+from jax import random
+
 from .composition import Composable, identity
-
+from .settings import settings_fn
 
 """
 Define vmapped versions of some functions in jax.random.
@@ -477,48 +477,3 @@ def cutmix(beta_params=[1.0, 1.0], mask_fn=rectangular_mask):
         return {**values, "inputs": xs, "one_hot_labels": ys, "rngs": rngs, "rng": rng}
 
     return _cutmix
-
-
-def augmix(possible_augmentation_fns, depth, width, dirichlet_alpha):
-    """
-    UNTESTED AugMix augmentation function.
-    """
-
-    def augment(rng, x):
-        _depth = jax.random.randint(rng, (1,), 0, depth)
-        rngs = jax.random.split(rng, _depth)
-
-        for rng in rngs:
-            rng_fn, rng_aug = jax.random.split(rng)
-            fn = jax.random.choice(rng_fn, possible_augmentation_fns)
-            x = fn(rng_aug, x)
-
-        return x
-
-    def mix(rng, xs):
-        mixing_weights = jax.random.dirichlet(rng, (dirichlet_alpha,) * len(xs))
-        return (xs * mixing_weights).sum(axis=0)
-
-    def augment_and_mix(rng, x):
-        rng_mix, rng_augment = jax.random.split(rng, width + 1)
-        xs = jnp.array([augment(rng_augment, x) for _ in range(width)])
-        return mix(rng_mix, xs)
-
-    def _augmix(values):
-        rngs, _rngs1, _rngs2 = batch_split(values["rngs"], 3)
-
-        xs = values["inputs"]
-
-        new_xs_1 = [augment(rng, x) for rng, x in zip(_rngs1, xs)]
-        new_xs_1 = jnp.stack(new_xs_1)
-
-        new_xs_2 = [augment_and_mix(rng, x) for rng, x in zip(_rngs2, xs)]
-        new_xs_2 = jnp.stack(new_xs_2)
-
-        return {
-            **values,
-            "inputs": jnp.concatenate([xs, new_xs_1, new_xs_2], axis=0),
-            "rngs": rngs,
-        }
-
-    return _augmix
