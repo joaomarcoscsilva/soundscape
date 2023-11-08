@@ -21,6 +21,13 @@ class State(dict):
 
         return State({**self, **other_dict})
 
+    def remap_keys(self, key_map: dict | None = None):
+        if key_map is None:
+            return self
+
+        key_map = {**{k: k for k in self.keys()}, **key_map}
+        return State({key_map[k]: v for k, v in self.items()})
+
     def select_keys(
         self,
         keys: list,
@@ -34,15 +41,12 @@ class State(dict):
         >>> state = State({"a": 1, "b": 2, "c": 3})
         >>> state.select_keys(["a", "b"])
         {"a": 1, "b": 2}
-        >>> state.select_keys(["x", "y"], key_map={"x": "a", "y": "b"})
+        >>> state.select_keys(["x", "y"], key_map={"a": "x", "b": "y"})
         {"x": 1, "y": 2}
         """
 
-        if key_map is None:
-            return State({k: self[k] for k in keys if k in self})
-        else:
-            key_map = {**{k: k for k in keys}, **key_map}
-            return State({k: self[key_map[k]] for k in keys if key_map[k] in self})
+        state = self.remap_keys(key_map)
+        return State({k: state[k] for k in keys})
 
     def __hash__(self):
         """
@@ -310,28 +314,37 @@ class StateFunction(Composable):
 
     def __init__(
         self,
-        fn,
-        inputs: dict = {},
-        output: str | None = None,
+        fn: Callable[..., State],
+        output_key=None,
+        mapping: dict = {},
         traceable=True,
         typecheck=True,
     ):
         """
-        Create a StateFunction object.
+        Create a StateFunction callable from a function with a (* -> State) signature.
 
-        By default, the input keys are the same as the function arguments, but
-        they can be remapped using the input_keys dictionary.
+        The mapping dictionary can be used to rename the function arguments and output keys.
 
-        If fn returns a single value, it is automatically added to the state with the
-        same key as the output key. If fn returns a dictionary, the output key can be
-        omitted.
+        For example, consider the following function:
+
+        >>> def f(a):
+        >>>     return {"b": a + 1}
+
+        If the function is wrapped with the mapping {"a": "input_key", "b": "output_key"},
+        it will have the following behavior:
+
+        >>> f = StateFunction(f, {"a": "input_key", "b": "output_key"})
+        >>> f({"input_key": 1})
+        {"output_key": 2}
         """
 
         self._fn = fn
-        self._inputs = inputs
-        self._output = output
-        self._function_arguments = inspect.getfullargspec(fn).args
         self.__name__ = fn.__name__
+        self._output_key = output_key
+        self._mapping = mapping
+        self._function_arguments = inspect.getfullargspec(fn).args
+        self._traceable = traceable
+        self._typecheck = typecheck
 
         if typecheck:
             self._wrapped_fn = validate_call(self._fn)
@@ -345,35 +358,41 @@ class StateFunction(Composable):
             """
 
             # Extract the function arguments from the state
-            inputs = state.select_keys(self._function_arguments, key_map=self._inputs)
+            input_state = state.select_keys(
+                self._function_arguments, key_map=self._mapping
+            )
 
             # Call the function
-            output = self._wrapped_fn(**inputs)
+            output_value = self._wrapped_fn(**input_state)
 
-            if self._output is None:
+            if self._output_key is None:
                 # If the function returns a dictionary, add it to the state
-                return state + State(output)
+                output_state = State(output_value)
             else:
                 # If the function returns a single value, add it to the state
                 # with the specified output key
-                return state + State({self._output: output})
+                output_state = State({self._output_key: output_value})
+
+            return state + output_state.remap_keys(self._mapping)
 
         # Initialize the Composable object
         super().__init__(call_wrapped, traceable)
 
-    def inputs(self, input_keys: dict):
+    def remap(self, mapping: dict | str, value: str | None = None):
         """
         Remap the input keys of the function.
         """
 
-        return StateFunction(self._fn, input_keys, self._output)
+        if isinstance(mapping, str):
+            if value is None:
+                raise ValueError("The value argument must be specified")
+            mapping = {mapping: value}
 
-    def output(self, output_key: str):
-        """
-        Remap the output key of the function.
-        """
+        mapping = {**self._mapping, **mapping}
 
-        return StateFunction(self._fn, self._inputs, output_key)
+        return StateFunction(
+            self._fn, self._output_key, mapping, self._traceable, self._typecheck
+        )
 
     @classmethod
     def with_output(cls, output: str, *args, **kwargs):
@@ -382,9 +401,18 @@ class StateFunction(Composable):
         """
 
         def decorator(fn):
-            return cls(fn, *args, **kwargs, output=output)
+            return cls(fn, output, *args, **kwargs)
 
         return decorator
+
+    def output(self, output: str):
+        """
+        Specify the output key of the function.
+        """
+
+        return StateFunction(
+            self._fn, output, self._mapping, self._traceable, self._typecheck
+        )
 
 
 identity = Composable(lambda x: x)
