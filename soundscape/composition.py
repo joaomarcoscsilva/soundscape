@@ -2,8 +2,10 @@ import inspect
 from functools import partial
 from typing import Any, Callable, Optional
 
+import chex
 import jax
-import pydantic
+
+from .typechecking import validate_call
 
 
 class State(dict):
@@ -329,13 +331,10 @@ class StateFunction(Composable):
         self._inputs = inputs
         self._output = output
         self._function_arguments = inspect.getfullargspec(fn).args
+        self.__name__ = fn.__name__
 
         if typecheck:
-            self._wrapped_fn = pydantic.validate_call(
-                fn,
-                config=pydantic.ConfigDict(arbitrary_types_allowed=True, strict=True),
-                validate_return=True,
-            )
+            self._wrapped_fn = validate_call(self._fn)
         else:
             self._wrapped_fn = self._fn
 

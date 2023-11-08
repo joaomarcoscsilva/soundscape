@@ -5,6 +5,7 @@ import pytest
 from jax import numpy as jnp
 
 from soundscape.composition import *
+from soundscape.typechecking import ArrayTree
 
 
 def test_state_addition_with_repeated_keys():
@@ -335,3 +336,69 @@ def test_grad_works_for_composed_functions():
         else:
             assert jnp.allclose(grad_composed[key], grad_expected[key])
             assert jnp.allclose(grad_gof[key], grad_expected[key])
+
+
+def test_composition_typing():
+    @StateFunction.with_output("x")
+    def int2float(x: int) -> float:
+        return float(x)
+
+    @StateFunction.with_output("x")
+    def float2str(x: float) -> str:
+        return str(x)
+
+    @StateFunction.with_output("x")
+    def int2str(x: int) -> str:
+        return str(x)
+
+    @StateFunction.with_output("x")
+    def wrong_output(x: int) -> float:
+        return str(x)
+
+    @StateFunction.with_output("x", typecheck=False)
+    def no_checking(x: int) -> float:
+        return str(x)
+
+    inputs = State({"x": 1, "static": "str"})
+
+    # Check that a correct composition works normally
+    assert (int2float | float2str)(inputs) == State({"x": "1.0", "static": "str"})
+
+    # Check that a wrong composition fails
+    with pytest.raises(ValueError):
+        (int2str | float2str)(inputs)
+
+    # Check that output type checking works
+    with pytest.raises(ValueError):
+        wrong_output(inputs)
+
+    # Check that a wrong composition works when type checking is disabled
+    assert (int2str | no_checking)(inputs) == State({"x": "1", "static": "str"})
+
+
+def test_ArrayTree_typechecking():
+    @StateFunction.with_output("x")
+    def f(x: ArrayTree):
+        return x[0] + x[1]
+
+    @chex.chexify
+    @StateFunction.with_output("x")
+    def f_no_nones(x: ArrayTree):
+        chex.assert_tree_no_nones(x)
+        return x[0] + x[1]
+
+    inputs = State({"x": [jnp.array([1, 2]), jnp.array([3, 4]), None]})
+    invalid_inputs = State({"x": [jnp.array([1, 2]), 3]})
+
+    # Check that the function works normally
+    chex.assert_trees_all_equal(
+        f(inputs), State({"x": jnp.array([4, 6], dtype=jnp.int32)})
+    )
+
+    # Check that the function fails when the input is not an ArrayTree
+    with pytest.raises(ValueError):
+        f(invalid_inputs)
+
+    # Check that chex value assertions work inside a StateFunction
+    with pytest.raises(AssertionError):
+        f_no_nones(inputs)
