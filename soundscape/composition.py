@@ -316,7 +316,7 @@ class StateFunction(Composable):
         self,
         fn: Callable[..., State],
         output_key=None,
-        mapping: dict = {},
+        input_map: dict = {},
         traceable=True,
         typecheck=True,
     ):
@@ -341,7 +341,7 @@ class StateFunction(Composable):
         self._fn = fn
         self.__name__ = fn.__name__
         self._output_key = output_key
-        self._mapping = mapping
+        self._input_map = input_map
         self._function_arguments = inspect.getfullargspec(fn).args
         self._traceable = traceable
         self._typecheck = typecheck
@@ -359,7 +359,7 @@ class StateFunction(Composable):
 
             # Extract the function arguments from the state
             input_state = state.select_keys(
-                self._function_arguments, key_map=self._mapping
+                self._function_arguments, key_map=self._input_map
             )
 
             # Call the function
@@ -373,25 +373,25 @@ class StateFunction(Composable):
                 # with the specified output key
                 output_state = State({self._output_key: output_value})
 
-            return state + output_state.remap_keys(self._mapping)
+            return state + output_state
 
         # Initialize the Composable object
         super().__init__(call_wrapped, traceable)
 
-    def remap(self, mapping: dict | str, value: str | None = None):
+    def input(self, input_map: dict | str, value: str | None = None):
         """
         Remap the input keys of the function.
         """
 
-        if isinstance(mapping, str):
+        if isinstance(input_map, str):
             if value is None:
                 raise ValueError("The value argument must be specified")
-            mapping = {mapping: value}
+            input_map = {input_map: value}
 
-        mapping = {**self._mapping, **mapping}
+        input_map = {**self._input_map, **input_map}
 
         return StateFunction(
-            self._fn, self._output_key, mapping, self._traceable, self._typecheck
+            self._fn, self._output_key, input_map, self._traceable, self._typecheck
         )
 
     @classmethod
@@ -411,7 +411,7 @@ class StateFunction(Composable):
         """
 
         return StateFunction(
-            self._fn, output, self._mapping, self._traceable, self._typecheck
+            self._fn, output, self._input_map, self._traceable, self._typecheck
         )
 
 

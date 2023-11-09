@@ -30,7 +30,7 @@ def test_state_key_selection():
 
 def test_state_key_selection_with_mapping():
     state = State({"a": 1, "b": 2, "c": 3})
-    substate = state.select_keys(["a", "x"], key_map={"x": "c"})
+    substate = state.select_keys(["a", "x"], key_map={"c": "x"})
     assert substate == State({"a": 1, "x": 3})
 
 
@@ -167,8 +167,28 @@ def test_state_function_creation_with_state_output():
     assert outputs == State({"x": 1, "y": 2, "out": 3, "sub": -1})
 
 
-def test_state_function_creation_with_mapped_input():
-    f = StateFunction(lambda x, y: x - y).output("out").inputs({"x": "a", "y": "b"})
+def test_state_function_creation_with_remap():
+    f = StateFunction(lambda x, y: x - y).output("out").input({"a": "x", "b": "y"})
+
+    inputs = State({"a": 1, "b": 2})
+    outputs = f(inputs)
+    assert outputs == State({"a": 1, "b": 2, "out": -1})
+
+    with pytest.raises(KeyError):
+        f(inputs.select_keys(["a"]))
+
+    with pytest.raises(ValueError):
+        f.input("key_only")
+
+
+def test_state_function_successive_remaps():
+    f = (
+        StateFunction(lambda x, y: x - y)
+        .output("out")
+        .input({"a": "w", "b": "y"})
+        .input("a", "x")
+    )
+
     inputs = State({"a": 1, "b": 2})
     outputs = f(inputs)
     assert outputs == State({"a": 1, "b": 2, "out": -1})

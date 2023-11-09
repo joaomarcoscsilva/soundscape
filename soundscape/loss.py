@@ -1,131 +1,50 @@
-from typing import Optional
-from jax import numpy as jnp
-import jax
-from .composition import Composable
-import optax
 import typing
+from typing import Optional
+
+import jax
+import optax
+from jax import numpy as jnp
+
+from .composition import StateFunction
+from .typechecking import Array
 
 
-def kl(p1, p2):
-    """
-    Compute the Kullback-Leibler divergence between two distributions.
-    """
-    return p1 * jnp.log(p1 / p2)
+@StateFunction.with_output("ce")
+def crossentropy(logits: Array, label_probs: Array) -> Array:
+    return optax.softmax_cross_entropy(logits=logits, labels=label_probs)
 
 
-def js(ps):
-    """
-    Compute the Jensen-Shannon divergence between a set of distributions.
-    """
-    ps = jnp.clip(ps, 1e-7, 1)
-    pm = ps.mean(axis=0)
-    return kl(ps, pm).mean(axis=0)
+@StateFunction.with_output("brier")
+def brier(logits: Array, label_probs: Array) -> Array:
+    pred_probs = jax.nn.softmax(logits)
+    return jnp.sum((pred_probs - label_probs) ** 2, axis=-1)
 
 
-def crossentropy(logits: jnp.ndarray, one_hot_labels: jnp.ndarray) -> jnp.ndarray:
-    return optax.softmax_cross_entropy(logits=logits, labels=one_hot_labels)
+@StateFunction.with_output("probs")
+def probs(logits: Array) -> Array:
+    return jax.nn.softmax(logits)
 
 
-def crossentropy(output, *, logits="logits", one_hot_labels="one_hot_labels"):
-    """
-    Compute the cross-entropy loss.
-    """
-
-    @Composable
-    def _crossentropy(step: State) -> State:
-        ce = optax.softmax_cross_entropy(
-            logits=step[logits], labels=step[one_hot_labels]
-        )
-
-    return _crossentropy
+@StateFunction.with_output("preds")
+def preds(probs: Array) -> Array:
+    return probs.argmax(axis=-1)
 
 
-def brier(values):
-    logits = values["logits"]
-    labels = values["one_hot_labels"]
-
-    probs = jax.nn.softmax(logits)
-
-    return jnp.sum((probs - labels) ** 2, axis=-1)
+@StateFunction.with_output("acc")
+def accuracy(preds: Array, labels: Array) -> Array:
+    return preds == labels
 
 
-def preds(weights=None):
-    """
-    Return a function that returns the predictions from the logits.
-    """
-
-    if weights is None:
-        weights = 1
-
-    def _preds(values):
-        logits = values["logits"]
-        probs = jax.nn.softmax(logits)
-        w_probs = probs * weights
-        return w_probs.argmax(axis=-1)
-
-    return _preds
-
-
-def augmix_loss(loss_fn, num_repetitions=3, l=1.0):
-    """
-    UNTESTED AugMix loss function.
-    """
-
-    @Composable
-    def augmix_loss(values):
-        logits = values["logits"]
-        labels = values["one_hot_labels"]
-
-        logits = jnp.split(logits, num_repetitions)
-
-        ce_loss = loss_fn(
-            {**values, "logits": logits[0], "one_hot_labels": labels[: logits.shape[1]]}
-        )
-
-        probs = jax.nn.softmax(logits)
-        js_loss = js(probs)
-
-        loss = ce_loss + l * js_loss
-
-        return {**values, "loss": loss, "js_loss": js_loss, "ce_loss": ce_loss}
-
-    return augmix_loss
-
-
-def accuracy(preds_key):
-    """
-    Return a function that computes the accuracy of the predictions.
-
-    Args:
-        labels_key: The key of the labels in the values dictionary.
-    """
-
-    def _accuracy(values):
-        return jnp.float32(
-            values[preds_key] == values["one_hot_labels"].argmax(axis=-1)
-        )
-
-    return _accuracy
-
-
-def weighted(metric_function, class_weights=None):
-    """
-    Transform a metric function into a weighted metric function, with
-    weights depending on the class of each sample.
-    """
-
+@StateFunction.with_output("metric")
+def weight_metric(
+    metric: Array, labels: Array, class_weights: None | Array = jnp.ones(1)
+) -> Array:
     if class_weights is None:
-        return metric_function
+        return metric
 
-    return (
-        lambda values: metric_function(values)
-        * class_weights[values["one_hot_labels"].argmax(axis=-1)]
-    )
+    return metric * class_weights[labels]
 
 
-def mean(function):
-    """
-    Transform a metric function into a function that computes the mean
-    of the metric over a batch.
-    """
-    return lambda values: function(values).mean()
+@StateFunction.with_output("metric")
+def mean_metric(metric: Array) -> Array:
+    return metric.mean()

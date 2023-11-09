@@ -1,45 +1,18 @@
-from soundscape import loss
-
 import jax
-from jax import numpy as jnp
 import numpy as np
+from jax import numpy as jnp
+
+from soundscape import loss
+from soundscape.composition import State
 
 jax.config.update("jax_platform_name", "cpu")
-
-
-def test_kl():
-    p1 = jnp.array([0.25, 0.25, 0.25, 0.25])
-    p2 = jnp.array([0.5, 0.25, 0.125, 0.125])
-
-    assert jnp.allclose(loss.kl(p1, p1), jnp.zeros(4))
-    assert jnp.allclose(loss.kl(p2, p2), jnp.zeros(4))
-
-    kl1 = loss.kl(p1, p2) / jnp.log(2)
-    kl2 = loss.kl(p2, p1) / jnp.log(2)
-
-    assert jnp.allclose(kl1, jnp.array([-0.25, 0, 0.25, 0.25]))
-    assert jnp.allclose(kl2, jnp.array([0.5, 0, -0.125, -0.125]))
-
-
-def test_js():
-    p1 = jnp.array([0.25, 0.25, 0.25, 0.25])
-    p2 = jnp.array([0.5, 0.25, 0.125, 0.125])
-    pm = (p1 + p2) / 2
-
-    kl1 = loss.kl(p1, pm)
-    kl2 = loss.kl(p2, pm)
-    js1 = loss.js(jnp.stack([p1, p2]))
-    js2 = loss.js(jnp.stack([p2, p1]))
-
-    assert jnp.allclose(js1, (kl1 + kl2) / 2)
-    assert jnp.allclose(js2, js1)
 
 
 def test_crossentropy():
     logits = (jnp.arange(16).reshape(4, 4) - 8) / 8
     labels = jnp.eye(4)
 
-    ce = loss.crossentropy({"logits": logits, "one_hot_labels": labels})
+    ce = loss.crossentropy(State({"logits": logits, "label_probs": labels}))["ce"]
 
     probs = jax.nn.softmax(logits)
     ce2 = jnp.diag(-jnp.log(probs))
@@ -47,53 +20,64 @@ def test_crossentropy():
     assert jnp.allclose(ce, ce2)
 
 
-def test_preds():
+def test_brier():
+    logits = (jnp.arange(16).reshape(4, 4) - 8) / 8
+    labels = jnp.eye(4)
+
+    brier = loss.brier(State({"logits": logits, "label_probs": labels}))["brier"]
+
+    probs = jax.nn.softmax(logits)
+    brier2 = jnp.sum((probs - labels) ** 2, axis=-1)
+
+    assert jnp.allclose(brier, brier2)
+
+
+def test_probs():
     logits = jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    preds = loss.preds()({"logits": logits})
-    assert jnp.allclose(preds, jnp.array([2, 1, 0]))
+    probs = loss.probs(State({"logits": logits}))["probs"]
+    assert jnp.allclose(probs, jax.nn.softmax(logits))
 
 
-def test_weighted_preds():
-    logits = jnp.ones((10, 3))
-    weights = jnp.array([1.0, 4.0, 3.0])
-    preds = loss.preds(weights)({"logits": logits})
-    assert jnp.allclose(preds, 1)
+def test_preds():
+    probs = jnp.array([[0.1, 0.2, 0.7], [1.0, 0.0, 0.0], [0.4, 0.3, 0.3]])
+    preds = loss.preds(State({"probs": probs}))["preds"]
+    assert jnp.allclose(preds, jnp.array([2, 0, 0]))
 
 
 def test_accuracy():
+    preds = jnp.array([2, 0, 0, 1, 1])
+    labels = jnp.array([2, 0, 1, 1, 0])
+    acc = loss.accuracy(State({"preds": preds, "labels": labels}))["acc"]
+    assert jnp.allclose(acc, jnp.array([1, 1, 0, 1, 0]))
+
+
+def test_weight_metric():
+    weight_metric = loss.weight_metric.output("bal_acc").input("acc", "metric")
+    fn = loss.probs | loss.preds | loss.accuracy | weight_metric
+
     logits = jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    preds = loss.preds()({"logits": logits})
     labels = jnp.array([1, 1, 0])
-    one_hot_labels = jnp.eye(3)[labels]
-    acc = loss.accuracy("preds")({"preds": preds, "one_hot_labels": one_hot_labels})
-    assert jnp.allclose(acc, jnp.array([0, 1, 1]))
+    class_weights = jnp.array([2, 1, 1])
 
+    bal_acc = fn(
+        State({"logits": logits, "labels": labels, "class_weights": class_weights})
+    )["bal_acc"]
 
-def test_weighted():
-    logits = jnp.array([[1.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    preds = loss.preds()({"logits": logits})
-    labels = jnp.array([2, 1, 0])
-    one_hot_labels = jnp.eye(3)[labels]
+    assert jnp.allclose(bal_acc, jnp.array([0, 1, 2]))
 
-    weights = jnp.array([1.0, 2.0, 3.0])
+    bal_acc_no_weights = fn(
+        State({"logits": logits, "labels": labels, "class_weights": None})
+    )["bal_acc"]
 
-    weighted_acc = loss.weighted(loss.accuracy("preds"), weights)
-
-    acc = weighted_acc({"preds": preds, "one_hot_labels": one_hot_labels})
-
-    assert jnp.allclose(acc, jnp.array([0.0, 2.0, 1.0]))
-
-    assert loss.weighted(loss.accuracy, None) == loss.accuracy
+    assert jnp.allclose(bal_acc_no_weights, jnp.array([0, 1, 1]))
 
 
 def test_mean():
-    logits = jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    preds = loss.preds()({"logits": logits})
-    labels = jnp.array([1, 1, 0])
-    one_hot_labels = jnp.eye(3)[labels]
+    preds = jnp.array([2, 0, 0, 1, 1])
+    labels = jnp.array([2, 0, 1, 1, 0])
 
-    acc_fn = loss.mean(loss.accuracy("preds"))
+    fn = loss.accuracy | loss.mean_metric.output("mean_acc").input("acc", "metric")
 
-    acc = acc_fn({"preds": preds, "one_hot_labels": one_hot_labels})
+    acc = fn(State({"preds": preds, "labels": labels}))["mean_acc"]
 
-    assert jnp.allclose(acc, 2 / 3)
+    assert jnp.allclose(acc, 0.6)
