@@ -1,18 +1,19 @@
-import pandas as pd
-import imageio
-import os
-import yaml
 import argparse
-import soundfile
+import multiprocessing
+import os
+
+import imageio
 import librosa
 import numpy as np
-import multiprocessing
+import pandas as pd
+import soundfile
+import yaml
 from tqdm import tqdm
 
 # disable gpu
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-from soundscape import settings, composition
+from soundscape import composition, settings
 from soundscape.composition import Composable
 
 

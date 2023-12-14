@@ -1,6 +1,3 @@
-import typing
-from typing import Optional
-
 import jax
 import optax
 from jax import numpy as jnp

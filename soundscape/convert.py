@@ -240,8 +240,8 @@ for layer_num in params["vit"]["encoder"]["layer"]:
         f"Transformer/encoderblock_{layer_num}/LayerNorm_2"
     )
 
-from vit_keras import vit
 import jax
+from vit_keras import vit
 
 model = vit.vit_b16(
     image_size=224,
@@ -255,6 +255,7 @@ model = vit.vit_b16(
 vars = {var.name: var for var in model.variables}
 params = jax.tree_util.tree_map(lambda name: vars[name], params)
 import numpy as np
+
 params = jax.tree_util.tree_map(lambda x: np.array(x), params)
 
 

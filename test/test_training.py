@@ -1,8 +1,8 @@
-from soundscape import training, composition, loss
-
 import jax
-from jax import numpy as jnp
 import optax
+from jax import numpy as jnp
+
+from soundscape import composition, loss, training
 
 
 @composition.Composable
@@ -26,7 +26,6 @@ gradient_fn = composition.grad(predict, "params", "loss")
 
 
 def test_update():
-
     optim = optax.sgd(0.1)
     update_fn = gradient_fn | training.update(optim)
 
@@ -54,7 +53,6 @@ def test_update():
 
 
 def test_convergence():
-
     optim = optax.adam(0.1)
 
     update_fn = gradient_fn | training.update(optim)

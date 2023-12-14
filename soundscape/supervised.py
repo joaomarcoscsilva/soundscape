@@ -1,26 +1,27 @@
-from jax import random, numpy as jnp
-import tensorflow as tf
-import jax
-import numpy as np
-from tqdm import tqdm
-import optax
+import os
 import pickle
 import sys
-import os
+
+import jax
+import numpy as np
+import optax
+import tensorflow as tf
+from jax import numpy as jnp
+from jax import random
+from tqdm import tqdm
 
 from soundscape import (
     augment,
     calibrate,
-    dataset,
-    resnet,
-    vit,
-    loss,
-    training,
     composition,
-    settings,
+    dataset,
     log,
+    loss,
+    resnet,
+    settings,
+    training,
+    vit,
 )
-
 from soundscape.composition import Composable, identity
 from soundscape.settings import settings_fn
 
@@ -104,7 +105,6 @@ def get_optimizer(
     sub_log_momentum,
     log_weight_decay,
 ):
-
     lr_schedule = optax.cosine_decay_schedule(
         init_value=10 ** (log_learning_rate),
         decay_steps=steps_per_epoch * epochs,

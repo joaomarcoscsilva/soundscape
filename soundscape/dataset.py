@@ -1,17 +1,20 @@
 import tensorflow as tf
 from tensorflow.python.ops.numpy_ops import np_config
-np_config.enable_numpy_behavior()
-import pickle
-import jax
-import pandas as pd
-import numpy as np
-from jax import random, numpy as jnp
-import os
-from glob import glob
-import scipy.special as sc
 
-from .settings import settings_fn, Settings
+np_config.enable_numpy_behavior()
+import os
+import pickle
+from glob import glob
+from typing import NamedTuple
+
+import jax
+import numpy as np
+import pandas as pd
+from jax import numpy as jnp
+from jax import random
+
 from .composition import Composable
+from .settings import Settings, settings_fn
 
 
 def read_audio_file(path):
@@ -148,31 +151,35 @@ def get_dataset_dict(
 
     return ds
 
+
 @settings_fn
 def get_distill_dataset(rng, *, extension, ensemble_labels_file):
-    with Settings.from_file('settings/udata_resnet.yaml'):
-        ds_dict = get_dataset_dict('u', rng, spectrogram_dir='uleec')
+    with Settings.from_file("settings/udata_resnet.yaml"):
+        ds_dict = get_dataset_dict("u", rng, spectrogram_dir="uleec")
 
-    ds_dict_id = ds_dict['id']
+    ds_dict_id = ds_dict["id"]
     ds_dict = {k: v[ds_dict_id.argsort()] for k, v in ds_dict.items()}
-
 
     with open(ensemble_labels_file, "rb") as f:
         ensemble_labels = pickle.load(f)
 
-    ds_dict['one_hot_labels'] = ensemble_labels['one_hot_labels']
+    ds_dict["one_hot_labels"] = ensemble_labels["one_hot_labels"]
 
-        # ds_dict['_file'] = np.repeat(ds_dict['_file'][None, ...], 20, axis=0)
-        # ds_dict['labels'] = np.repeat(ds_dict['labels'][None, ...], 20, axis=0)
-        # ds_dict['id'] = np.repeat(ds_dict['id'][None, ...], 20, axis=0)
+    # ds_dict['_file'] = np.repeat(ds_dict['_file'][None, ...], 20, axis=0)
+    # ds_dict['labels'] = np.repeat(ds_dict['labels'][None, ...], 20, axis=0)
+    # ds_dict['id'] = np.repeat(ds_dict['id'][None, ...], 20, axis=0)
 
-    ds_dict['one_hot_labels'] = ds_dict['one_hot_labels'].reshape((-1, 20, *ds_dict['one_hot_labels'].shape[1:]))
+    ds_dict["one_hot_labels"] = ds_dict["one_hot_labels"].reshape(
+        (-1, 20, *ds_dict["one_hot_labels"].shape[1:])
+    )
 
     ds = tf.data.Dataset.from_tensor_slices(ds_dict)
 
     read_fn = read_image_file if extension == "png" else read_audio_file
     ds = ds.map(lambda x: {"inputs": read_fn(x["_file"]), **x})
-    ds = ds.map(lambda x: {'inputs': x['inputs'], 'one_hot_labels': x['one_hot_labels']})
+    ds = ds.map(
+        lambda x: {"inputs": x["inputs"], "one_hot_labels": x["one_hot_labels"]}
+    )
 
     return ds
 
@@ -301,8 +308,8 @@ def split_rng(values):
 #     """
 
 #     image = values["inputs"]
-    
-#     batch_size, height, width, channels = image.shape    
+
+#     batch_size, height, width, channels = image.shape
 
 #     new_image_shape = (batch_size, height, split_shape, channels)
 
@@ -310,6 +317,7 @@ def split_rng(values):
 #     image = tf.split(image, 20, axis=2)
 
 #     return {**values, "inputs": image}
+
 
 @Composable
 @settings_fn
@@ -324,20 +332,20 @@ def split_image(values, *, split_shape):
     """
 
     image = values["inputs"]
-    
-    height, width, channels = image.shape    
 
-    image = image[:, :20 * split_shape]
+    height, width, channels = image.shape
+
+    image = image[:, : 20 * split_shape]
     image = tf.split(image, 20, axis=1)
 
-    if 'id' in values:
-        values['id'] = tf.repeat(values['id'], 20)
+    if "id" in values:
+        values["id"] = tf.repeat(values["id"], 20)
 
-    if 'labels' in values:
-        values['labels'] = tf.repeat(values['labels'], 20)
+    if "labels" in values:
+        values["labels"] = tf.repeat(values["labels"], 20)
 
-    if '_file' in values:
-        values['_file'] = tf.repeat(values['_file'], 20)
+    if "_file" in values:
+        values["_file"] = tf.repeat(values["_file"], 20)
 
     return {**values, "inputs": image}
 

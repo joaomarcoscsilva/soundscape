@@ -1,7 +1,7 @@
-from soundscape import log, composition
-
 import numpy as np
 import pytest
+
+from soundscape import composition, log
 
 
 def test_track():

@@ -1,12 +1,13 @@
-import pandas as pd
-import librosa
-import os
-import numpy as np
-from tqdm import tqdm
-import imageio
-from jax import random
 import multiprocessing
+import os
+
+import imageio
+import librosa
+import numpy as np
+import pandas as pd
 import soundfile
+from jax import random
+from tqdm import tqdm
 
 from soundscape import settings
 
@@ -19,10 +20,10 @@ def parallel_map(fn, iterable):
     """
     if DISABLE_PARALLEL:
         return list(tqdm(map(fn, iterable), total=len(iterable)))
-    
+
     with multiprocessing.Pool() as pool:
         return list(tqdm(pool.imap(fn, iterable), total=len(iterable)))
-    
+
 
 @settings.settings_fn
 def read_audio_file(filename, *, data_dir):
@@ -81,7 +82,7 @@ def load_df(*, data_dir, labels_file):
     # Sort the dataframe
     df = df.sort_values(["class", "file"])
     df = df.reset_index(drop=True)
-    
+
     return df
 
 
@@ -120,7 +121,9 @@ def extract_spectrograms_from_file(df_file):
     spectrogram = process_melspectrogram(spectrogram)
 
     # Save the spectrogram to disk
-    save_event(audio, spectrogram, df_file[1]["class"].iloc[0], df_file[1]['index'].iloc[0])
+    save_event(
+        audio, spectrogram, df_file[1]["class"].iloc[0], df_file[1]["index"].iloc[0]
+    )
 
 
 @settings.settings_fn

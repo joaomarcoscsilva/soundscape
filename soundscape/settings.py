@@ -1,9 +1,9 @@
-import yaml
-import inspect
 import argparse
-from threading import Lock
+import inspect
 from contextlib import nullcontext
+from threading import Lock
 
+import yaml
 
 _global_settings_stack = []
 

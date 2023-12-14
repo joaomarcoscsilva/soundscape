@@ -45,14 +45,15 @@ def test_crop_arrays():
         original_length=60.0, cropped_length=6.0, axis=1
     )(batch)
 
-    assert jnp.allclose(cropped_batch['inputs'], jnp.arange(2, 8))
+    assert jnp.allclose(cropped_batch["inputs"], jnp.arange(2, 8))
 
-    batch['inputs'] = jnp.arange(60).reshape(1, 1, 60, 1)
+    batch["inputs"] = jnp.arange(60).reshape(1, 1, 60, 1)
     cropped_batch = augment._crop_arrays(
         original_length=60.0, cropped_length=6.0, axis=2
     )(batch)
 
-    assert jnp.allclose(cropped_batch['inputs'], jnp.arange(2, 8).reshape(1, 1, 6, 1))
+    assert jnp.allclose(cropped_batch["inputs"], jnp.arange(2, 8).reshape(1, 1, 6, 1))
+
 
 def test_crop_times():
     original_length = 20.0
@@ -74,7 +75,6 @@ def test_crop_times():
     assert crop_times.std() > 0.1
     assert new_rngs.shape == (10,)
     assert not jnp.allclose(new_rngs, jax.random.split(jax.random.key(0), 10))
-
 
 
 def test_deterministic_time_crop():

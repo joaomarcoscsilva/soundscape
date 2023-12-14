@@ -1,28 +1,29 @@
-import tensorflow as tf
-from tqdm import tqdm
-import pickle
-import jax
-from jax import numpy as jnp
-import os
 import glob
+import os
+import pickle
+
+import jax
+import tensorflow as tf
+from jax import numpy as jnp
+from tqdm import tqdm
 
 from soundscape import (
     augment,
     calibrate,
-    dataset,
-    resnet,
-    vit,
-    loss,
-    training,
     composition,
-    settings,
+    dataset,
     log,
+    loss,
+    resnet,
+    settings,
+    training,
+    vit,
 )
 from soundscape.settings import settings_fn
 
+
 @settings_fn
 def get_soundscape_dataset(rng, *, batch_size):
-
     ds = (
         dataset.get_tensorflow_dataset("u", rng)
         .map(dataset.split_image)
@@ -36,15 +37,12 @@ def get_soundscape_dataset(rng, *, batch_size):
 
 @settings_fn
 def get_preprocess_functions():
-
-    preprocess = (
-        dataset.prepare_image
-        | dataset.downsample_image
-    )
+    preprocess = dataset.prepare_image | dataset.downsample_image
 
     preprocess = dataset.tf2jax | composition.jit(preprocess)
 
     return preprocess
+
 
 @settings_fn
 def get_functions(rng, *, model_name):
@@ -56,12 +54,13 @@ def get_functions(rng, *, model_name):
     del values
 
     # call_fn = composition.vmap(call_fn, vmapped_keys = ('params', 'state'))
-    call_fn = composition.jit(call_fn, static_keys=['is_training'])
+    call_fn = composition.jit(call_fn, static_keys=["is_training"])
     call_fn = call_fn | log.track(["logits", "id"])
 
     log_fn = log.stack_epoch_logs | log.save_logs
 
     return call_fn, log_fn
+
 
 @settings_fn
 def load_model_weights(*, weights_dir):
@@ -71,6 +70,7 @@ def load_model_weights(*, weights_dir):
             params.append(pickle.load(f))
     # params = jax.tree_util.tree_map(lambda *x: jnp.stack(x), *params)
     return params
+
 
 @settings_fn
 def predict(*, seed, name):
@@ -87,22 +87,18 @@ def predict(*, seed, name):
         processed_batch = preprocess(batch)
         for i in range(len(values)):
             v = call_fn({**values[i], **processed_batch, "is_training": False})
-            values[i]['_logs'] = v['_logs']
-            
+            values[i]["_logs"] = v["_logs"]
+
     for i in range(len(values)):
         values[i] = log.stack_epoch_logs(values[i])
-        values[i] = values[i]['_epoch_logs']
+        values[i] = values[i]["_epoch_logs"]
 
-    values = log.merge_logs(values, 'concat')
+    values = log.merge_logs(values, "concat")
 
     with open(f"logs/{name}.pkl", "wb") as f:
         pickle.dump(values, f)
-    
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     with settings.Settings.from_command_line():
         predict()
-
-    

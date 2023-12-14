@@ -1,8 +1,8 @@
 import jax
-from jax import numpy as jnp
 import optax
+from jax import numpy as jnp
 
-from soundscape import settings, supervised, composition, training
+from soundscape import composition, settings, supervised, training
 from soundscape.composition import Composable
 
 

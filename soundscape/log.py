@@ -1,13 +1,13 @@
-from .composition import Composable
-from . import settings
-
-import numpy as np
-from tqdm import tqdm
-from jax import numpy as jnp
-import jax
-from tqdm import tqdm
 import pickle
+
 import haiku as hk
+import jax
+import numpy as np
+from jax import numpy as jnp
+from tqdm import tqdm
+
+from . import settings
+from .composition import Composable
 
 
 def track(keys, prefix=""):

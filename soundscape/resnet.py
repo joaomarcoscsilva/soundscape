@@ -1,11 +1,11 @@
-from .composition import Composable
-from .settings import settings_fn
+import flax
+import haiku as hk
 import jax_resnet
 from flax import linen as nn
-import flax
 from jax import numpy as jnp
-import haiku as hk
 
+from .composition import Composable
+from .settings import settings_fn
 
 # A dictionary of functions that return a boolean indicating whether a given
 # parameter should be trained or not.

@@ -1,12 +1,14 @@
-from soundscape import dataset, settings
-
 import os
+
 import jax
-from jax import random, numpy as jnp
 import numpy as np
-import tensorflow as tf
-import pytest
 import pandas as pd
+import pytest
+import tensorflow as tf
+from jax import numpy as jnp
+from jax import random
+
+from soundscape import dataset, settings
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 

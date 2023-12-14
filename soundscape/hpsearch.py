@@ -1,12 +1,13 @@
-import jax
-import jax.numpy as jnp
 import itertools
+import os
 import pickle
 import pprint
-import os
 
-from soundscape import supervised, log, settings
-from soundscape.composition import hashable_dict, Composable
+import jax
+import jax.numpy as jnp
+
+from soundscape import log, settings, supervised
+from soundscape.composition import Composable, hashable_dict
 
 
 @Composable

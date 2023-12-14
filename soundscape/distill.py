@@ -1,34 +1,34 @@
-from jax import random, numpy as jnp
-import tensorflow as tf
-import jax
-import numpy as np
-from tqdm import tqdm
-import optax
+import os
 import pickle
 import sys
-import os
+
+import jax
+import numpy as np
+import optax
+import tensorflow as tf
+from jax import numpy as jnp
+from jax import random
+from tqdm import tqdm
 
 from soundscape import (
     augment,
     calibrate,
-    dataset,
-    resnet,
-    vit,
-    loss,
-    training,
     composition,
-    settings,
+    dataset,
     log,
-    supervised
+    loss,
+    resnet,
+    settings,
+    supervised,
+    training,
+    vit,
 )
-
 from soundscape.composition import Composable, identity
 from soundscape.settings import settings_fn
 
 
 @settings_fn
 def get_u_dataset(rng, *, batch_size):
-
     ds = (
         dataset.get_distill_dataset(rng)
         .map(dataset.split_image)
@@ -38,8 +38,6 @@ def get_u_dataset(rng, *, batch_size):
     )
 
     return ds
-
-
 
 
 @settings_fn
@@ -52,7 +50,6 @@ def get_u_preprocess_function(*, cutout_alpha, cutmix_alpha, mixup_alpha, crop_t
         | augment.cutmix(cutmix_alpha)
         | augment.mixup(mixup_alpha)
     )
-
 
     preprocess_u_train = dataset.tf2jax | composition.jit(preprocess_u_train)
 
@@ -84,7 +81,7 @@ def get_optimizer(
         decay_steps=steps_per_epoch * epochs,
     )
 
-    print('Total steps:', steps_per_epoch * epochs)
+    print("Total steps:", steps_per_epoch * epochs)
 
     if optim_name == "adam":
         base_optim_transform = optax.scale_by_adam()
@@ -159,7 +156,12 @@ def get_call_functions(
         "val_acc_nb",
     ]
     pbar_every = 11
-    pbar_len = u_batches + len(train_ds) + len(val_ds) + (len(test_ds) if evaluate_on_test else 0)
+    pbar_len = (
+        u_batches
+        + len(train_ds)
+        + len(val_ds)
+        + (len(test_ds) if evaluate_on_test else 0)
+    )
 
     evaluate_and_grad = composition.grad(metrics_fn, "params", "loss")
     train = evaluate_and_grad | training.update(optim)
