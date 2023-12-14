@@ -1,405 +1,136 @@
+import os
+from glob import glob
+
+import numpy as np
 import tensorflow as tf
+from jax import random
 from tensorflow.python.ops.numpy_ops import np_config
 
 np_config.enable_numpy_behavior()
-import os
-import pickle
-from glob import glob
-from typing import NamedTuple
-
-import jax
-import numpy as np
-import pandas as pd
-from jax import numpy as jnp
-from jax import random
-
-from .composition import Composable
-from .settings import Settings, settings_fn
 
 
 def read_audio_file(path):
-    """
-    Read an audio file.
-    """
-
-    data = tf.io.read_file(path)
-    return tf.audio.decode_wav(data, desired_channels=1)[0]
+    return tf.audio.decode_wav(tf.io.read_file(path), desired_channels=1)[0]
 
 
-@settings_fn
-def read_image_file(path, *, precision):
-    """
-    Read an image file.
-
-    Settings:
-    ---------
-    precision: int
-        The precision of the image. Can be 8 or 16.
-    """
-    data = tf.io.read_file(path)
-    dtype = tf.uint16 if precision == 16 else tf.uint8
-    return tf.io.decode_png(data, channels=1, dtype=dtype)
+def read_image_file(path, image_precision):
+    dtype = tf.uint16 if image_precision == 16 else tf.uint8
+    return tf.io.decode_png(tf.io.read_file(path), channels=1, dtype=dtype)
 
 
-@settings_fn
-def get_classes(*, class_order, class_order_2, num_classes):
-    """
-    Get a list of class names and a function that maps a class name to a class id.
+def load_dataset_split(rng, split_dir, *, class_names, class_to_id, reading_function):
+    filenames = []
+    labels = []
+    ids = []
 
-    Settings:
-    ---------
-    class_order: list
-        The order of the 13 classes ("other" + 6 birds + 6 frogs)
-    class_order_2: list
-        The order of the 2 classes ("bird" and "frog")
-    num_classes: int
-        The number of classes to use. Can be 13, 12 or 2.
-    """
+    extension = "png" if reading_function == read_image_file else "wav"
 
-    # Create a copy of the class order list
-    classes = [c for c in class_order]
+    for cls in class_names:
+        filenames = glob(os.path.join(split_dir, str(cls), f"*.{extension}"))
 
-    # If using 13 classes, return the classes list as is
-    if num_classes == 13:
-        return classes, classes.index
-
-    # If using 12 classes, remove the "other" class before returning
-    if num_classes == 12:
-        if "other" in classes:
-            classes.remove("other")
-        return classes, classes.index
-
-    # If using 2 classes, return the 2 classes list and a function that maps
-    # each species' name to either 0 or 1
-    if num_classes == 2:
-        if "other" in classes:
-            classes.remove("other")
-        return class_order_2, lambda x: int(classes.index(x) >= 6)
-
-    return classes, classes.index
-
-
-@settings_fn
-def get_class_names():
-    """
-    Get a list of class names
-    """
-
-    return get_classes()[0]
-
-
-@settings_fn
-def get_dataset_dict(
-    split, rng, *, data_dir, spectrogram_dir, num_classes, class_order, extension
-):
-    """
-    Return a dictionary containing the dataset entries.
-
-    Parameters:
-    ----------
-    split: str
-        The split to use. Can be "train", "val" or "test".
-    rng: jax.random.PRNGKey
-        The random number generator key used to shuffle the dataset.
-
-    Settings:
-    ---------
-    data_dir: str
-        The path to the data directory.
-    spectrogram_dir: str
-        The name of the directory containing the spectrograms.
-    num_classes: int
-        The number of classes to use. Can be 13, 12 or 2.
-    class_order: list
-        The order of the 13 classes ("other" + 6 birds + 6 frogs)
-    extension: str
-        The extension of the spectrograms. Can be "png" or "wav".
-
-    """
-
-    # Get the path to the dataset directory
-    dataset_dir = os.path.join(data_dir, spectrogram_dir, split)
-
-    # Get the list of classes
-    classes = [c for c in class_order]
-    if num_classes != 13 and "other" in classes:
-        classes.remove("other")
-
-    # Get the function that maps a class name to a class id
-    class_to_id = get_classes()[1]
-
-    # Create the dataset dictionary
-    ds = {
-        "_file": [],
-        "labels": [],
-        "id": [],
-    }
-
-    for cls in classes:
-        # Get the list of files in the current class directory
-        files = glob(os.path.join(dataset_dir, str(cls), f"*.{extension}"))
-
-        # Add the files to the dataset dictionary
-        for f in sorted(files):
-            ds["_file"].append(f)
-            ds["labels"].append(class_to_id(cls))
-            ds["id"].append(int(os.path.basename(f).split(".")[0]))
+        for f in sorted(filenames):
+            filenames.append(f)
+            labels.append(class_to_id(cls))
+            ids.append(int(os.path.basename(f).split(".")[0]))
 
     # Shuffle the dataset
-    idx = random.permutation(rng, len(ds["_file"]))
-    ds = {k: np.array(v)[idx] for k, v in ds.items()}
+    rng, _rng = random.split(rng)
+    idx = random.permutation(_rng, len(filenames))
+    filenames = np.array(filenames)[idx]
+    labels = np.array(labels)[idx]
+    ids = np.array(ids)[idx]
 
-    return ds
+    return {
+        "labels": labels,
+        "_files": filenames,
+        "_ids": ids,
+    }
 
 
-@settings_fn
-def get_distill_dataset(rng, *, extension, ensemble_labels_file):
-    with Settings.from_file("settings/udata_resnet.yaml"):
-        ds_dict = get_dataset_dict("u", rng, spectrogram_dir="uleec")
-
-    ds_dict_id = ds_dict["id"]
-    ds_dict = {k: v[ds_dict_id.argsort()] for k, v in ds_dict.items()}
-
-    with open(ensemble_labels_file, "rb") as f:
-        ensemble_labels = pickle.load(f)
-
-    ds_dict["one_hot_labels"] = ensemble_labels["one_hot_labels"]
-
-    # ds_dict['_file'] = np.repeat(ds_dict['_file'][None, ...], 20, axis=0)
-    # ds_dict['labels'] = np.repeat(ds_dict['labels'][None, ...], 20, axis=0)
-    # ds_dict['id'] = np.repeat(ds_dict['id'][None, ...], 20, axis=0)
-
-    ds_dict["one_hot_labels"] = ds_dict["one_hot_labels"].reshape(
-        (-1, 20, *ds_dict["one_hot_labels"].shape[1:])
+def get_dataloader(
+    rng,
+    split_dir,
+    *,
+    class_names,
+    class_to_id,
+    reading_function,
+    cache,
+    batch_size,
+    shuffle,
+    drop_remainder=False,
+):
+    ds_dict = load_dataset_split(
+        rng,
+        split_dir,
+        class_names=class_names,
+        class_to_id=class_to_id,
+        reading_function=reading_function,
     )
 
-    ds = tf.data.Dataset.from_tensor_slices(ds_dict)
-
-    read_fn = read_image_file if extension == "png" else read_audio_file
-    ds = ds.map(lambda x: {"inputs": read_fn(x["_file"]), **x})
-    ds = ds.map(
-        lambda x: {"inputs": x["inputs"], "one_hot_labels": x["one_hot_labels"]}
+    ds = tf.data.Dataset.from_tensor_slices(ds_dict).map(
+        lambda instance: instance | {"inputs": reading_function(instance["_files"])}
     )
 
-    return ds
+    if cache:
+        ds = ds.cache()
 
+    if shuffle:
+        ds = ds.shuffle(10000, seed=random.randint(rng))
 
-@settings_fn
-def get_tensorflow_dataset(split, rng, *, extension):
-    """
-    Return a tf.data.Dataset object containing the dataset entries.
-
-    Parameters:
-    ----------
-    split: str
-        The split to use. Can be "train", "val" or "test".
-    rng: jax.random.PRNGKey
-        The random number generator key used to shuffle the dataset.
-
-    Settings:
-    ---------
-    extension: str
-        The extension of the spectrograms. Can be "png" or "wav".
-    """
-
-    # Get the dataset dictionary
-    ds_dict = get_dataset_dict(split, rng)
-
-    # Create the tensorflow dataset
-    ds = tf.data.Dataset.from_tensor_slices(ds_dict)
-
-    # Map a function that reads the data from the files
-    read_fn = read_image_file if extension == "png" else read_audio_file
-    ds = ds.map(lambda x: {"inputs": read_fn(x["_file"]), **x})
+    ds = ds.batch(batch_size, drop_remainder=drop_remainder)
+    ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
 
     return ds
 
 
-@Composable
-def tf2jax(values):
-    """
-    Convert a dictionary of tensorflow tensors to a dictionary of jax arrays.
-    """
+class Dataset:
+    def __init__(
+        self,
+        rng,
+        *,
+        dataset_dir,
+        batch_size,
+        reading_function,
+        class_names,
+        class_to_id,
+    ):
+        self.class_names = class_names
+        self.class_to_id = class_to_id.get if class_to_id else class_names.index
 
-    def _tf2jax(x):
-        """
-        Convert a single tensor to a jax array.
-        """
+        rng, rng_train, rng_val, rng_test = random.split(rng, 4)
 
-        # Convert the tensor to a numpy array
-        if isinstance(x, tf.Tensor):
-            x = x.numpy()
+        self.train = get_dataloader(
+            rng_train,
+            os.path.join(dataset_dir, "train"),
+            class_names=class_names,
+            class_to_id=class_to_id,
+            reading_function=reading_function,
+            cache=True,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_remainder=False,
+        )
 
-        # if the dtype is adequate, convert to a jax array
-        if isinstance(x, np.ndarray) and x.dtype != np.dtype("O"):
-            x = jnp.array(x)
+        self.val = get_dataloader(
+            rng_val,
+            os.path.join(dataset_dir, "val"),
+            class_names=class_names,
+            class_to_id=class_to_id,
+            reading_function=reading_function,
+            cache=True,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_remainder=False,
+        )
 
-        return x
-
-    values = {k: _tf2jax(v) for k, v in values.items()}
-
-    return values
-
-
-@settings_fn
-def get_class_weights(*, data_dir, labels_file, num_classes):
-    """
-    Return an array with weights for each class.
-    These weights can be used to create metrics that assign an
-    equal importance to each class, regardless of its frequency.
-
-    Settings:
-    ---------
-    data_dir: str
-        The path to the data directory.
-    labels_file: str
-        The name of the file containing the labels.
-    num_classes: int
-        The number of classes to use. Can be 13, 12 or 2.
-    """
-
-    # Read the labels file
-    df = pd.read_csv(os.path.join(data_dir, labels_file))
-
-    # Filters only the relevant samples
-    df = df[df["exists"]]
-    if num_classes != 13:
-        df = df[df["selected"]]
-
-    # Maps the class names to ids
-    classes, class_to_id = get_classes()
-    df_classes = df["class"].map(class_to_id)
-
-    # Compute the frequency of each class
-    frequencies = df_classes.value_counts(True)
-    frequencies = frequencies.sort_index().to_numpy()
-
-    # Compute the weights
-    weights = 1 / (frequencies * num_classes)
-
-    return jnp.array(weights)
-
-
-@Composable
-def split_rng(values):
-    """
-    Split the rng key into one key for each element in the batch.
-    """
-
-    rng = values["rng"]
-    inputs = values["inputs"]
-
-    rng, _rng = jax.random.split(rng, 2)
-    rngs = jax.random.split(_rng, inputs.shape[0])
-
-    return {**values, "rng": rng, "rngs": rngs}
-
-
-# @Composable
-# @settings_fn
-# def split_image(values, *, split_shape):
-#     """
-#     Split a spectrogram into multiple smaller spectrograms.
-
-#     Settings:
-#     ---------
-#     split_shape: int
-#         The shape of the smaller spectrograms.
-#     """
-
-#     image = values["inputs"]
-
-#     batch_size, height, width, channels = image.shape
-
-#     new_image_shape = (batch_size, height, split_shape, channels)
-
-#     image = image[:, :, :20 * split_shape]
-#     image = tf.split(image, 20, axis=2)
-
-#     return {**values, "inputs": image}
-
-
-@Composable
-@settings_fn
-def split_image(values, *, split_shape):
-    """
-    Split a spectrogram into multiple smaller spectrograms.
-
-    Settings:
-    ---------
-    split_shape: int
-        The shape of the smaller spectrograms.
-    """
-
-    image = values["inputs"]
-
-    height, width, channels = image.shape
-
-    image = image[:, : 20 * split_shape]
-    image = tf.split(image, 20, axis=1)
-
-    if "id" in values:
-        values["id"] = tf.repeat(values["id"], 20)
-
-    if "labels" in values:
-        values["labels"] = tf.repeat(values["labels"], 20)
-
-    if "_file" in values:
-        values["_file"] = tf.repeat(values["_file"], 20)
-
-    return {**values, "inputs": image}
-
-
-@Composable
-@settings_fn
-def prepare_image(values, *, precision):
-    """
-    Normalize a repeat an image's channels 3 times.
-
-    Settings:
-    ---------
-    precision: int
-        The number of bits used to represent each pixel.
-    """
-
-    image = values["inputs"]
-
-    # Normalize the image
-    image = jnp.float32(image) / (2**precision)
-
-    # Repeat the channels 3 times
-    image = jnp.repeat(image, 3, axis=-1)
-
-    return {**values, "inputs": image}
-
-
-@Composable
-def downsample_image(values):
-    """
-    Downsample an image to 224x224 pixels.
-    """
-
-    image = values["inputs"]
-    shape = (*image.shape[:-3], 224, 224, image.shape[-1])
-    image = jax.image.resize(image, shape, method="bicubic")
-
-    return {**values, "inputs": image}
-
-
-@Composable
-@settings_fn
-def one_hot_encode(values, *, num_classes):
-    """
-    Convert a class name to a one-hot encoded vector
-
-    Settings:
-    ---------
-    num_classes: int
-        The number of classes to use. Can be 13, 12 or 2.
-    """
-
-    labels = values["labels"]
-
-    labels = jax.nn.one_hot(labels, num_classes)
-
-    return {**values, "one_hot_labels": labels}
+        self.test = get_dataloader(
+            rng_test,
+            os.path.join(dataset_dir, "test"),
+            class_names=class_names,
+            class_to_id=class_to_id,
+            reading_function=reading_function,
+            cache=True,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_remainder=False,
+        )
