@@ -1,9 +1,11 @@
-from soundscape import augment, composition, settings
-
+from functools import partial
 from typing import Callable
+
 import jax
 from jax import numpy as jnp
-from functools import partial
+
+from soundscape import augment, composition, settings
+from soundscape.composition import State
 
 
 def assert_all_different(values_list):
@@ -19,8 +21,8 @@ def test_batch_rngs():
     rngs1 = jax.random.split(rng1, 10)
     rngs2 = jax.random.split(rng2, 10)
 
-    split_rngs1, _rngs1 = augment.batch_split(rngs1, 2)
-    split_rngs2, _rngs2 = augment.batch_split(rngs2, 2)
+    split_rngs1, _rngs1 = augment.batch_rng_split(rngs1, 2)
+    split_rngs2, _rngs2 = augment.batch_rng_split(rngs2, 2)
 
     assert_all_different([split_rngs1, split_rngs2, _rngs1, _rngs2, rngs1, rngs2])
 
@@ -36,21 +38,43 @@ def test_batch_rngs():
     assert jnp.all(uniform_2 >= 0)
 
 
-def test_crop_time_array():
-    arr = jnp.arange(60)[None, ...]
+def test_crop_arrays():
+    batch = State({"inputs": jnp.arange(60)[None, ...], "crop_times": jnp.array([2])})
 
-    cropped_arr = augment.crop_time_array(
-        arr, jnp.array(2), segment_length=60, cropped_length=6, axis=1
-    )
+    cropped_batch = augment._crop_arrays(
+        original_length=60.0, cropped_length=6.0, axis=1
+    )(batch)
 
-    assert jnp.allclose(cropped_arr, jnp.arange(2, 8))
+    assert jnp.allclose(cropped_batch['inputs'], jnp.arange(2, 8))
 
-    arr = jnp.arange(60).reshape(1, 1, 60, 1)
-    cropped_arr = jax.jit(
-        partial(augment.crop_time_array, segment_length=60, cropped_length=6, axis=2)
-    )(arr, jnp.array(2))
+    batch['inputs'] = jnp.arange(60).reshape(1, 1, 60, 1)
+    cropped_batch = augment._crop_arrays(
+        original_length=60.0, cropped_length=6.0, axis=2
+    )(batch)
 
-    assert jnp.allclose(cropped_arr, jnp.arange(2, 8).reshape(1, 1, 6, 1))
+    assert jnp.allclose(cropped_batch['inputs'], jnp.arange(2, 8).reshape(1, 1, 6, 1))
+
+def test_crop_times():
+    original_length = 20.0
+    cropped_length = 12.0
+
+    crop_times = augment._centered_crop_times(
+        original_lenght=original_length, cropped_length=cropped_length
+    )(jnp.arange(10))
+
+    assert jnp.allclose(crop_times, jnp.repeat(4.0, 10))
+
+    crop_times, new_rngs = augment._random_crop_times(
+        original_length=original_length, cropped_length=cropped_length
+    )(jnp.arange(10), jax.random.split(jax.random.key(0), 10))
+
+    assert jnp.all(crop_times < 8.0)
+    assert jnp.all(crop_times >= 0.0)
+    assert crop_times.shape == (10,)
+    assert crop_times.std() > 0.1
+    assert new_rngs.shape == (10,)
+    assert not jnp.allclose(new_rngs, jax.random.split(jax.random.key(0), 10))
+
 
 
 def test_deterministic_time_crop():
