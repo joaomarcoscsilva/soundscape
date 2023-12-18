@@ -1,5 +1,6 @@
 import os
 from glob import glob
+from typing import Callable, Union
 
 import numpy as np
 import tensorflow as tf
@@ -9,16 +10,37 @@ from tensorflow.python.ops.numpy_ops import np_config
 np_config.enable_numpy_behavior()
 
 
-def read_audio_file(path):
+def read_audio_file(path: str):
     return tf.audio.decode_wav(tf.io.read_file(path), desired_channels=1)[0]
 
 
-def read_image_file(path, image_precision):
+def read_image_file(path: str, image_precision: int):
     dtype = tf.uint16 if image_precision == 16 else tf.uint8
     return tf.io.decode_png(tf.io.read_file(path), channels=1, dtype=dtype)
 
 
-def load_dataset_split(rng, split_dir, *, class_names, class_to_id, reading_function):
+def load_split_metadata(
+    rng: random.KeyArray,
+    split_dir: str,
+    *,
+    class_names: list[str],
+    class_to_id: Callable[[str], int],
+    reading_function: Union[read_audio_file, read_image_file],
+):
+    """
+    Load the metadata for a split of the dataset, including filenames and labels,
+    but not the actual image/audio files.
+
+    The data files should be organized in the following way:
+        [split_dir]/[class_name]/[file]
+
+    The function class_to_id maps from class names to integer ids. It can be used,
+    for instance, to group all bird species into a single class.
+
+    The list class_names should contain a string for each class id, after applying
+    the class_to_id mapping.
+    """
+
     filenames = []
     labels = []
     ids = []
@@ -47,19 +69,21 @@ def load_dataset_split(rng, split_dir, *, class_names, class_to_id, reading_func
     }
 
 
-def get_dataloader(
-    rng,
-    split_dir,
+def get_split_dataloader(
+    rng: random.KeyArray,
+    split_dir: str,
     *,
-    class_names,
-    class_to_id,
-    reading_function,
-    cache,
-    batch_size,
-    shuffle,
-    drop_remainder=False,
+    class_names: list[str],
+    class_to_id: Callable[[str], int],
+    reading_function: Union[read_audio_file, read_image_file],
+    cache: bool,
+    shuffle_every_epoch: bool,
 ):
-    ds_dict = load_dataset_split(
+    """
+    Get a tf.data.Dataset object for a split of the dataset.
+    """
+
+    ds_dict = load_split_metadata(
         rng,
         split_dir,
         class_names=class_names,
@@ -74,11 +98,8 @@ def get_dataloader(
     if cache:
         ds = ds.cache()
 
-    if shuffle:
+    if shuffle_every_epoch:
         ds = ds.shuffle(10000, seed=random.randint(rng))
-
-    ds = ds.batch(batch_size, drop_remainder=drop_remainder)
-    ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
 
     return ds
 
@@ -86,51 +107,48 @@ def get_dataloader(
 class Dataset:
     def __init__(
         self,
-        rng,
+        rng: random.KeyArray,
         *,
-        dataset_dir,
-        batch_size,
-        reading_function,
-        class_names,
-        class_to_id,
+        dataset_dir: str,
+        reading_function: Union[read_audio_file, read_image_file],
+        class_names: list[str],
+        class_to_id: Callable[[str], int] = None,
+        cache: bool = True,
     ):
+        """
+        Create a new dataset object, which stores dataloaders for all splits.
+        The dataset must be organized in the following way:
+            [dataset_dir]/[split_dir]/[class_name]/[file]
+
+        Only the "train" split is shuffled every epoch.
+        """
+
         self.class_names = class_names
         self.class_to_id = class_to_id.get if class_to_id else class_names.index
 
-        rng, rng_train, rng_val, rng_test = random.split(rng, 4)
+        self._splits = {}
 
-        self.train = get_dataloader(
-            rng_train,
-            os.path.join(dataset_dir, "train"),
-            class_names=class_names,
-            class_to_id=class_to_id,
-            reading_function=reading_function,
-            cache=True,
-            batch_size=batch_size,
-            shuffle=True,
-            drop_remainder=False,
-        )
+        split_names = os.listdir(dataset_dir)
+        rngs = random.split(rng, len(split_names))
 
-        self.val = get_dataloader(
-            rng_val,
-            os.path.join(dataset_dir, "val"),
-            class_names=class_names,
-            class_to_id=class_to_id,
-            reading_function=reading_function,
-            cache=True,
-            batch_size=batch_size,
-            shuffle=False,
-            drop_remainder=False,
-        )
+        for rng, split in zip(rngs, split_names):
+            self._splits[split] = get_split_dataloader(
+                rng,
+                os.path.join(dataset_dir, split),
+                class_names=class_names,
+                class_to_id=class_to_id,
+                reading_function=reading_function,
+                cache=cache,
+                shuffle=split == "train",  # Only shuffle the training set after caching
+            )
 
-        self.test = get_dataloader(
-            rng_test,
-            os.path.join(dataset_dir, "test"),
-            class_names=class_names,
-            class_to_id=class_to_id,
-            reading_function=reading_function,
-            cache=True,
-            batch_size=batch_size,
-            shuffle=False,
-            drop_remainder=False,
-        )
+    def iterate(self, split: str, batch_size: int, drop_remainder: bool = False):
+        """
+        Get an iterator over the dataset for a given split.
+        """
+
+        ds = self._splits[split]
+        ds = ds.batch(batch_size, drop_remainder=drop_remainder)
+        ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
+
+        return ds

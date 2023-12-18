@@ -1,0 +1,9 @@
+defaults:
+  - leec_12
+
+class_names: [ "bird", "frog" ]
+
+class_to_id: {
+    basi_culi: 0, myio_leuc: 0, vire_chiv: 0, cycl_guja: 0, pita_sulp: 0, zono_cape: 0,
+    dend_minu: 1, apla_leuc: 1, isch_guen: 1, phys_cuvi: 1, boan_albo: 1, aden_marm: 1
+  }

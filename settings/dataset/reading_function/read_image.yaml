@@ -1,0 +1,3 @@
+_target_: dataset.read_image_file
+_partial_: true
+image_precision: 16

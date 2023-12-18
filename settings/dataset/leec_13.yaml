@@ -1,0 +1,4 @@
+defaults:
+  - leec_12
+
+class_names: [ "other", "basi_culi", "myio_leuc", "vire_chiv", "cycl_guja", "pita_sulp", "zono_cape", "dend_minu", "apla_leuc", "isch_guen", "phys_cuvi", "boan_albo", "aden_marm"]
