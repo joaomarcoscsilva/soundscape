@@ -21,18 +21,15 @@ def parallel_map(fn, iterable):
         return list(tqdm(pool.imap(fn, iterable), total=len(iterable)))
 
 
-@settings.settings_fn
-def read_audio_file(filename, *, data_dir):
+def read_audio_file(data_dir, filename):
     """
     Read an audio file and return the audio time series and its sampling rate
     """
 
-    audio, sr = librosa.load(os.path.join(data_dir, filename), res_type="fft")
-    return audio
+    return librosa.load(os.path.join(data_dir, filename), res_type="fft")
 
 
-@settings.settings_fn
-def crop_audio_segment(audio, start, end, *, sr):
+def crop_audio_segment(audio, start, end, sr):
     """
     Crop an audio segment from start to end seconds.
     """
@@ -42,8 +39,7 @@ def crop_audio_segment(audio, start, end, *, sr):
     return audio[start_index:end_index]
 
 
-@settings.settings_fn
-def pad_audio_segment(audio, start, end, *, segment_length, sr, pad_mode):
+def pad_audio_segment(audio, start, end, segment_length, sr, pad_mode):
     """
     Pad an audio segment to segment_length seconds.
     """
@@ -57,8 +53,7 @@ def pad_audio_segment(audio, start, end, *, segment_length, sr, pad_mode):
     return audio, start, end
 
 
-@settings.settings_fn
-def crop_audio_event(audio, start, end, *, segment_length, sr):
+def crop_audio_event(audio, start, end, segment_length, sr):
     """
     Crop an event of size segment_length from the midpoint of start and end
     """
@@ -73,8 +68,7 @@ def crop_audio_event(audio, start, end, *, segment_length, sr):
     return crop_audio_segment(audio, begin, end)
 
 
-@settings.settings_fn
-def melspectrogram(audio, *, sr, spectrogram_config):
+def melspectrogram(audio, sr, spectrogram_config):
     """
     Compute the mel spectrogram of an audio time series
     """
@@ -82,8 +76,7 @@ def melspectrogram(audio, *, sr, spectrogram_config):
     return librosa.feature.melspectrogram(y=audio, sr=sr, **spectrogram_config)
 
 
-@settings.settings_fn
-def process_melspectrogram(spectrogram, *, precision, lower_threshold, upper_threshold):
+def process_melspectrogram(spectrogram, precision, lower_threshold, upper_threshold):
     """
     Preprocess an audio file and return its mel spectrogram
     """
@@ -102,8 +95,7 @@ def process_melspectrogram(spectrogram, *, precision, lower_threshold, upper_thr
     return spectrogram
 
 
-@settings.settings_fn
-def load_df(*, data_dir, labels_file):
+def load_df(data_dir, labels_file):
     """
     Read the labels dataframe and return it in a standard format.
     """
@@ -124,14 +116,12 @@ def load_df(*, data_dir, labels_file):
     return df
 
 
-@settings.settings_fn
 def save_event(
     audio,
     spectrogram,
     split,
     class_name,
     event_id,
-    *,
     data_dir,
     spectrogram_dir,
     sr,
@@ -165,7 +155,6 @@ def extract_spectrograms_from_file(df_file):
         save_event(cropped_audio, spectrogram, row["split"], row["class"], row.name)
 
 
-@settings.settings_fn
 def extract_spectrograms(df):
     # Group the events belonging to the same file
     df_files = df.groupby("file")
@@ -177,8 +166,7 @@ def extract_spectrograms(df):
     return df
 
 
-@settings.settings_fn
-def split_array(array, rng, *, val_size, test_size):
+def split_array(array, rng, val_size, test_size):
     """
     Split a class into train, validation and test sets
     """
@@ -196,8 +184,7 @@ def split_array(array, rng, *, val_size, test_size):
     return splits
 
 
-@settings.settings_fn
-def split_dataset(df, *, split_seed, stratify):
+def split_dataset(df, split_seed, stratify):
     if stratify:
         # Group the events belonging to the same class
         df_classes = df.groupby("class")

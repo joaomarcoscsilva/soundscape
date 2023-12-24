@@ -21,13 +21,13 @@ def test_batch_rngs():
     rngs1 = jax.random.split(rng1, 10)
     rngs2 = jax.random.split(rng2, 10)
 
-    split_rngs1, _rngs1 = augment.batch_rng_split(rngs1, 2)
-    split_rngs2, _rngs2 = augment.batch_rng_split(rngs2, 2)
+    split_rngs1, _rngs1 = augment._batch_rng_split(rngs1, 2)
+    split_rngs2, _rngs2 = augment._batch_rng_split(rngs2, 2)
 
     assert_all_different([split_rngs1, split_rngs2, _rngs1, _rngs2, rngs1, rngs2])
 
-    uniform_1 = augment.batch_uniform(_rngs1, 0, 10)
-    uniform_2 = augment.batch_uniform(_rngs2, 0, 10)
+    uniform_1 = augment._batch_uniform(_rngs1, 0, 10)
+    uniform_2 = augment._batch_uniform(_rngs2, 0, 10)
 
     assert_all_different([uniform_1, uniform_2])
 
@@ -59,13 +59,13 @@ def test_crop_times():
     original_length = 20.0
     cropped_length = 12.0
 
-    crop_times = augment._centered_crop_times(
+    crop_times = augment.centered_crop_times(
         original_lenght=original_length, cropped_length=cropped_length
     )(jnp.arange(10))
 
     assert jnp.allclose(crop_times, jnp.repeat(4.0, 10))
 
-    crop_times, new_rngs = augment._random_crop_times(
+    crop_times, new_rngs = augment.random_crop_times(
         original_length=original_length, cropped_length=cropped_length
     )(jnp.arange(10), jax.random.split(jax.random.key(0), 10))
 

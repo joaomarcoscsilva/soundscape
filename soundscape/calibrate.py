@@ -50,7 +50,7 @@ def calibrate(
 
         evaluate_fn = calibrate_transform | metrics_fn
         grad_fn = composition.grad(evaluate_fn, "calibration_params", "loss")
-        step_fn = grad_fn | training.update(optim)
+        step_fn = grad_fn | training._get_update_fn(optim)
 
         step_fn = composition.jit(step_fn)
 

@@ -164,7 +164,7 @@ def get_call_functions(
     )
 
     evaluate_and_grad = composition.grad(metrics_fn, "params", "loss")
-    train = evaluate_and_grad | training.update(optim)
+    train = evaluate_and_grad | training._get_update_fn(optim)
 
     train = composition.jit(train, static_keys=["is_training"])
     evaluate = composition.jit(metrics_fn, static_keys=["is_training"])

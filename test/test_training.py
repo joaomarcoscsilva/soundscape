@@ -27,7 +27,7 @@ gradient_fn = composition.grad(predict, "params", "loss")
 
 def test_update():
     optim = optax.sgd(0.1)
-    update_fn = gradient_fn | training.update(optim)
+    update_fn = gradient_fn | training._get_update_fn(optim)
 
     params = {"a": jnp.array([2.0]), "b": jnp.array([1.0])}
     optim_state = optim.init(params)
@@ -55,7 +55,7 @@ def test_update():
 def test_convergence():
     optim = optax.adam(0.1)
 
-    update_fn = gradient_fn | training.update(optim)
+    update_fn = gradient_fn | training._get_update_fn(optim)
 
     params = {"a": jnp.ones((32, 1)), "b": jnp.zeros((32,))}
     optim_state = optim.init(params)

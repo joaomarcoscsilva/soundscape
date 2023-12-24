@@ -83,7 +83,7 @@ def all_keys(list_of_dicts):
     return {key for d in list_of_dicts for key in d}
 
 
-def merge_logs(logs, mode):
+def merge(logs, mode):
     """
     Merge a list of logs into a single dictionary.
     The values on each step can be either concatenated or stacked.
@@ -156,7 +156,7 @@ def track_progress(keys, every=1, total=None):
         # Update the progress bar, if needed
         if step % every == 0 or (step + 1) % total == 0:
             # Merge all logs so far
-            merged_logs = merge_logs(logs, mode="concat")
+            merged_logs = merge(logs, mode="concat")
 
             # Keep only the keys we want to track
             merged_logs = {k: v for k, v in merged_logs.items() if k in keys}
@@ -212,11 +212,11 @@ def stack_epoch_logs(values):
 
     # Get the logs for the current epoch
     logs = values.pop("_logs")
-    epoch_logs = merge_logs([merge_logs(logs, "concat")], "stack")
+    epoch_logs = merge([merge(logs, "concat")], "stack")
 
     # Get the logs for the previous epochs
     if "_epoch_logs" in values:
-        epoch_logs = merge_logs([values["_epoch_logs"], epoch_logs], "concat")
+        epoch_logs = merge([values["_epoch_logs"], epoch_logs], "concat")
 
     return {**values, "_epoch_logs": epoch_logs}
 

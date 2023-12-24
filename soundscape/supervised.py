@@ -22,7 +22,7 @@ from soundscape import (
     training,
     vit,
 )
-from soundscape.composition import Composable, identity
+from soundscape.composition import Composable
 from soundscape.settings import settings_fn
 
 
@@ -186,7 +186,7 @@ def get_call_functions(
     pbar_len = len(train_ds) + len(val_ds) + (len(test_ds) if evaluate_on_test else 0)
 
     evaluate_and_grad = composition.grad(metrics_fn, "params", "loss")
-    train = evaluate_and_grad | training.update(optim)
+    train = evaluate_and_grad | training._get_update_fn(optim)
 
     train = composition.jit(train, static_keys=["is_training"])
     evaluate = composition.jit(metrics_fn, static_keys=["is_training"])

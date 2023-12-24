@@ -21,51 +21,9 @@ def test_read_audio_file():
 
 def test_read_image_file():
     filename = "test/data/0.png"
-    img = dataset.read_image_file(filename, precision=16)
+    img = dataset.read_image_file(filename, image_precision=16)
     assert img.shape == (256, 423, 1)
     assert img.dtype == tf.uint16
-
-
-def test_get_classes():
-    class_order = ["other", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]
-    class_order_2 = ["first_6", "last_6"]
-
-    with settings.Settings(
-        {"class_order": class_order, "class_order_2": class_order_2, "num_classes": 12}
-    ):
-        classes, idx_fn = dataset.get_classes(
-            num_classes=13,
-        )
-        class_names = dataset.get_class_names(num_classes=13)
-
-        assert classes == class_order == class_names
-        assert idx_fn("a") == 1
-        assert idx_fn("other") == 0
-        assert idx_fn("l") == 12
-
-        classes, idx_fn = dataset.get_classes(
-            num_classes=12,
-        )
-        class_names = dataset.get_class_names(num_classes=12)
-
-        assert classes == class_order[1:] == class_names
-        assert idx_fn("a") == 0
-        assert idx_fn("l") == 11
-        assert "other" not in classes
-
-        classes, idx_fn = dataset.get_classes(
-            num_classes=2,
-        )
-        class_names = dataset.get_class_names(num_classes=2)
-
-        assert classes == class_order_2 == class_names
-        assert idx_fn("a") == 0
-        assert idx_fn("b") == 0
-        assert idx_fn("f") == 0
-        assert idx_fn("g") == 1
-        assert idx_fn("i") == 1
-        assert idx_fn("l") == 1
-        assert "other" not in classes
 
 
 @pytest.mark.parametrize(

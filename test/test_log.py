@@ -63,8 +63,8 @@ def test_merge_logs():
         {"c": np.zeros((5, 3))},
     ]
 
-    concat_logs = log.merge_logs(logs, "concat")
-    stack_logs = log.merge_logs(logs, "stack")
+    concat_logs = log.merge(logs, "concat")
+    stack_logs = log.merge(logs, "stack")
 
     assert (concat_logs["a"] == np.zeros((6, 3))).all()
     assert (concat_logs["b"] == np.ones((6, 3, 4))).all()
@@ -74,7 +74,7 @@ def test_merge_logs():
     assert (stack_logs["c"] == np.zeros((2, 5, 3))).all()
 
     with pytest.raises(ValueError):
-        log.merge_logs(logs, "unknown")
+        log.merge(logs, "unknown")
 
 
 def test_mean_keep_dtype():

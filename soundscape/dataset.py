@@ -4,10 +4,36 @@ from typing import Callable, Union
 
 import numpy as np
 import tensorflow as tf
+from jax import numpy as jnp
 from jax import random
 from tensorflow.python.ops.numpy_ops import np_config
 
 np_config.enable_numpy_behavior()
+
+
+def _tf2jax(batch):
+    """
+    Convert a dictionary of tensorflow tensors to a dictionary of jax arrays.
+    """
+
+    def _tf2jax_element(element: tf.Tensor | np.ndarray | jnp.ndarray):
+        """
+        Convert a single tensor to a jax array.
+        """
+
+        # Convert the tensor to a numpy array
+        if isinstance(element, tf.Tensor):
+            element = element.numpy()
+
+        # if the dtype is adequate, convert to a jax array
+        if isinstance(element, np.ndarray) and element.dtype != np.dtype("O"):
+            element = jnp.array(element)
+
+        return element
+
+    batch = {k: _tf2jax_element(v) for k, v in batch.items()}
+
+    return batch
 
 
 def read_audio_file(path: str):
@@ -124,6 +150,7 @@ class Dataset:
         """
 
         self.class_names = class_names
+        self.num_classes = len(class_names)
         self.class_to_id = class_to_id.get if class_to_id else class_names.index
 
         self._splits = {}
@@ -142,7 +169,13 @@ class Dataset:
                 shuffle=split == "train",  # Only shuffle the training set after caching
             )
 
-    def iterate(self, split: str, batch_size: int, drop_remainder: bool = False):
+    def iterate(
+        self,
+        rng: random.KeyArray,
+        split: str,
+        batch_size: int,
+        drop_remainder: bool = False,
+    ):
         """
         Get an iterator over the dataset for a given split.
         """
@@ -151,4 +184,7 @@ class Dataset:
         ds = ds.batch(batch_size, drop_remainder=drop_remainder)
         ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
 
-        return ds
+        for batch in ds:
+            rng, _rng = random.split(rng)
+            _rngs = random.split(_rng, batch_size)
+            yield _tf2jax(batch) | {"rng": _rng, "rngs": _rngs}

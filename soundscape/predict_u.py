@@ -93,7 +93,7 @@ def predict(*, seed, name):
         values[i] = log.stack_epoch_logs(values[i])
         values[i] = values[i]["_epoch_logs"]
 
-    values = log.merge_logs(values, "concat")
+    values = log.merge(values, "concat")
 
     with open(f"logs/{name}.pkl", "wb") as f:
         pickle.dump(values, f)
