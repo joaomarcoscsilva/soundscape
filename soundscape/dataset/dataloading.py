@@ -1,17 +1,20 @@
 import os
 from glob import glob
-from typing import Callable, Union
+from typing import Callable
 
+import jax
 import numpy as np
 import tensorflow as tf
 from jax import numpy as jnp
 from jax import random
 from tensorflow.python.ops.numpy_ops import np_config
 
+from .dataset import Dataset
+
 np_config.enable_numpy_behavior()
 
 
-def _tf2jax(batch):
+def tf2jax(batch):
     """
     Convert a dictionary of tensorflow tensors to a dictionary of jax arrays.
     """
@@ -36,22 +39,12 @@ def _tf2jax(batch):
     return batch
 
 
-def read_audio_file(path: str):
-    return tf.audio.decode_wav(tf.io.read_file(path), desired_channels=1)[0]
-
-
-def read_image_file(path: str, image_precision: int):
-    dtype = tf.uint16 if image_precision == 16 else tf.uint8
-    return tf.io.decode_png(tf.io.read_file(path), channels=1, dtype=dtype)
-
-
 def load_split_metadata(
-    rng: random.KeyArray,
+    rng: jax.Array,
     split_dir: str,
-    *,
-    class_names: list[str],
+    dataset: Dataset,
     class_to_id: Callable[[str], int],
-    reading_function: Union[read_audio_file, read_image_file],
+    skipped_classes: list[str] = [],
 ):
     """
     Load the metadata for a split of the dataset, including filenames and labels,
@@ -71,12 +64,15 @@ def load_split_metadata(
     labels = []
     ids = []
 
-    extension = "png" if reading_function == read_image_file else "wav"
+    extension = "wav" if dataset.data_type == "audio" else "png"
 
-    for cls in class_names:
-        filenames = glob(os.path.join(split_dir, str(cls), f"*.{extension}"))
+    for cls in dataset.class_order:
+        if cls in skipped_classes:
+            continue
 
-        for f in sorted(filenames):
+        class_files = glob(os.path.join(split_dir, str(cls), f"*.{extension}"))
+
+        for f in sorted(class_files):
             filenames.append(f)
             labels.append(class_to_id(cls))
             ids.append(int(os.path.basename(f).split(".")[0]))
@@ -96,50 +92,44 @@ def load_split_metadata(
 
 
 def get_split_dataloader(
-    rng: random.KeyArray,
+    rng: jax.Array,
     split_dir: str,
-    *,
-    class_names: list[str],
+    dataset: Dataset,
     class_to_id: Callable[[str], int],
-    reading_function: Union[read_audio_file, read_image_file],
     cache: bool,
     shuffle_every_epoch: bool,
+    skipped_classes: list[str] = [],
 ):
     """
     Get a tf.data.Dataset object for a split of the dataset.
     """
 
-    ds_dict = load_split_metadata(
-        rng,
-        split_dir,
-        class_names=class_names,
-        class_to_id=class_to_id,
-        reading_function=reading_function,
-    )
+    ds_dict = load_split_metadata(rng, split_dir, dataset, class_to_id, skipped_classes)
+
+    read_fn = dataset.reading_function()
 
     ds = tf.data.Dataset.from_tensor_slices(ds_dict).map(
-        lambda instance: instance | {"inputs": reading_function(instance["_files"])}
+        lambda instance: instance | {"inputs": read_fn(instance["_files"])}
     )
 
     if cache:
         ds = ds.cache()
 
     if shuffle_every_epoch:
-        ds = ds.shuffle(10000, seed=random.randint(rng))
+        ds = ds.shuffle(10000, seed=random.randint(rng, (1,), 0, 2**16)[0])
 
     return ds
 
 
-class Dataset:
+class DataLoader:
     def __init__(
         self,
-        rng: random.KeyArray,
-        *,
-        dataset_dir: str,
-        reading_function: Union[read_audio_file, read_image_file],
-        class_names: list[str],
+        rng: jax.Array,
+        dataset: Dataset,
+        data_type: str,
         class_to_id: Callable[[str], int] = None,
         cache: bool = True,
+        skipped_classes: list[str] = [],
     ):
         """
         Create a new dataset object, which stores dataloaders for all splits.
@@ -149,29 +139,30 @@ class Dataset:
         Only the "train" split is shuffled every epoch.
         """
 
-        self.class_names = class_names
-        self.num_classes = len(class_names)
-        self.class_to_id = class_to_id.get if class_to_id else class_names.index
+        self.dataset = dataset
+        self.class_to_id = class_to_id if class_to_id else dataset.class_order.index
+        self.data_type = data_type
 
         self._splits = {}
 
-        split_names = os.listdir(dataset_dir)
+        split_names = os.listdir(dataset.dataset_dir)
         rngs = random.split(rng, len(split_names))
 
         for rng, split in zip(rngs, split_names):
             self._splits[split] = get_split_dataloader(
                 rng,
-                os.path.join(dataset_dir, split),
-                class_names=class_names,
+                os.path.join(dataset.dataset_dir, split),
+                dataset,
                 class_to_id=class_to_id,
-                reading_function=reading_function,
+                skipped_classes=skipped_classes,
                 cache=cache,
-                shuffle=split == "train",  # Only shuffle the training set after caching
+                # Only shuffle the training set after caching
+                shuffle_every_epoch=split == "train",
             )
 
     def iterate(
         self,
-        rng: random.KeyArray,
+        rng: jax.Array,
         split: str,
         batch_size: int,
         drop_remainder: bool = False,
@@ -187,4 +178,4 @@ class Dataset:
         for batch in ds:
             rng, _rng = random.split(rng)
             _rngs = random.split(_rng, batch_size)
-            yield _tf2jax(batch) | {"rng": _rng, "rngs": _rngs}
+            yield tf2jax(batch) | {"rng": _rng, "rngs": _rngs}
