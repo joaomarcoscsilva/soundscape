@@ -84,6 +84,8 @@ def load_split_metadata(
     labels = np.array(labels)[idx]
     ids = np.array(ids)[idx]
 
+    num_classes = len(set(labels))
+
     return {
         "labels": labels,
         "_files": filenames,
@@ -93,18 +95,14 @@ def load_split_metadata(
 
 def get_split_dataloader(
     rng: jax.Array,
-    split_dir: str,
+    ds_dict: dict,
     dataset: Dataset,
-    class_to_id: Callable[[str], int],
     cache: bool,
     shuffle_every_epoch: bool,
-    skipped_classes: list[str] = [],
 ):
     """
     Get a tf.data.Dataset object for a split of the dataset.
     """
-
-    ds_dict = load_split_metadata(rng, split_dir, dataset, class_to_id, skipped_classes)
 
     read_fn = dataset.reading_function()
 
@@ -143,22 +141,35 @@ class DataLoader:
         self.class_to_id = class_to_id if class_to_id else dataset.class_order.index
         self.data_type = data_type
 
-        self._splits = {}
+        self._dataloaders = {}
 
         split_names = os.listdir(dataset.dataset_dir)
         rngs = random.split(rng, len(split_names))
 
+        possible_labels = set()
+
         for rng, split in zip(rngs, split_names):
-            self._splits[split] = get_split_dataloader(
-                rng,
+            rng, rng_metadata, rng_dataloader = random.split(rng, 3)
+
+            split_metadata = load_split_metadata(
+                rng_metadata,
                 os.path.join(dataset.dataset_dir, split),
                 dataset,
-                class_to_id=class_to_id,
+                class_to_id,
                 skipped_classes=skipped_classes,
+            )
+
+            self._dataloaders[split] = get_split_dataloader(
+                rng_dataloader,
+                split_metadata,
+                dataset,
                 cache=cache,
-                # Only shuffle the training set after caching
                 shuffle_every_epoch=split == "train",
             )
+
+            possible_labels.update(split_metadata["labels"])
+
+        self.num_classes = len(possible_labels)
 
     def iterate(
         self,
@@ -171,7 +182,7 @@ class DataLoader:
         Get an iterator over the dataset for a given split.
         """
 
-        ds = self._splits[split]
+        ds = self._dataloaders[split]
         ds = ds.batch(batch_size, drop_remainder=drop_remainder)
         ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
 

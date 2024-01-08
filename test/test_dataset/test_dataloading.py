@@ -154,7 +154,7 @@ def test_leec2_sizes():
     assert_roughly_balanced(train_metadata, val_metadata, test_metadata)
 
 
-def test_leec_dataloader():
+def test_leec12_dataloader():
     ds = get_ds()
     rng = jax.random.PRNGKey(0)
 
@@ -166,6 +166,8 @@ def test_leec_dataloader():
         cache=False,
         skipped_classes=["other"],
     )
+
+    assert dataloader.num_classes == 12
 
     batches = []
     for i, batch in enumerate(dataloader.iterate(rng, "train", 32)):
