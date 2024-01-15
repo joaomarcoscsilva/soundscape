@@ -104,7 +104,7 @@ def get_split_dataloader(
     Get a tf.data.Dataset object for a split of the dataset.
     """
 
-    read_fn = dataset.reading_function()
+    read_fn = dataset._reading_function()
 
     ds = tf.data.Dataset.from_tensor_slices(ds_dict).map(
         lambda instance: instance | {"inputs": read_fn(instance["_files"])}

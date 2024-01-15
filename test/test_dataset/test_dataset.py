@@ -9,13 +9,13 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 def test_read_audio_file():
     filename = "test/test_dataset/data/0.wav"
-    audio = dataset.read_audio_file(filename)
+    audio = dataset._read_audio_file(filename)
     assert audio.shape == (22050 * 5, 1)
 
 
 def test_read_image_file():
     filename = "test/test_dataset/data/0.png"
-    img = dataset.read_image_file(filename, image_precision=16)
+    img = dataset._read_image_file(filename, image_precision=16)
     assert img.shape == (256, 423, 1)
     assert img.dtype == tf.uint16
 
@@ -32,10 +32,10 @@ def test_labels_dataframe():
 def test_dataset_reading_fn():
     filename = "test/test_dataset/data/0.wav"
     ds = dataset.Dataset(data_type="audio")
-    wav = ds.reading_function()(filename)
-    assert tf.reduce_all(wav == dataset.read_audio_file(filename))
+    wav = ds._reading_function()(filename)
+    assert tf.reduce_all(wav == dataset._read_audio_file(filename))
 
     filename = "test/test_dataset/data/0.png"
     ds = dataset.Dataset(data_type="image", preprocessing={"image_precision": 16})
-    img = ds.reading_function()(filename)
-    assert tf.reduce_all(img == dataset.read_image_file(filename, 16))
+    img = ds._reading_function()(filename)
+    assert tf.reduce_all(img == dataset._read_image_file(filename, 16))
