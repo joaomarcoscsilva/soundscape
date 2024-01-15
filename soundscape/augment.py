@@ -1,12 +1,10 @@
 from functools import partial
-from typing import Union
+from typing import Tuple, Union
 
 import jax
-import numpy as jnp
+from jax import numpy as jnp
 
-from .composition import Composable, StateFunction, identity
-from .settings import settings_fn
-from .typechecking import Array
+from soundscape import utils
 
 """
 Define vmapped versions of some functions in jax.random.
@@ -14,9 +12,6 @@ Define vmapped versions of some functions in jax.random.
 These are used because each sample in a batch has its own random key.
 """
 
-_batch_rng_split = jax.vmap(
-    lambda rng, n: tuple(jax.random.split(rng, n)), in_axes=(0, None)
-)
 
 _batch_uniform = jax.vmap(
     lambda rng, minval, maxval: jax.random.uniform(rng, minval=minval, maxval=maxval),
@@ -29,7 +24,7 @@ _batch_beta = jax.vmap(
 )
 
 
-def _crop_arrays(
+def _get_crop_arrays_fn(
     original_length: float, cropped_length: float, axis: int = -2
 ) -> callable:
     """
@@ -38,7 +33,7 @@ def _crop_arrays(
     """
 
     @jax.vmap
-    def _crop_time_array(inputs: Array, crop_times: Array) -> Array:
+    def _crop_time_array(inputs: jax.Array, crop_times: jax.Array) -> jax.Array:
         duration_idx = int((cropped_length / original_length) * inputs.shape[axis])
         durations = inputs.shape[:axis] + (duration_idx,) + inputs.shape[axis + 1 :]
 
@@ -52,55 +47,51 @@ def _crop_arrays(
     return _crop_time_array
 
 
-def centered_crop_times(original_lenght: float, cropped_length: float) -> callable:
+def _centered_crop_times(
+    rngs: jax.Array, original_lenght: float, cropped_length: float
+) -> jax.Array:
     """
     Generate crop times that crop the center of the array.
     """
 
-    def _crop_times(inputs: Array) -> Array:
-        crop_time = (original_lenght - cropped_length) / 2
-        return jnp.repeat(crop_time, len(inputs))
-
-    return _crop_times
+    crop_time = (original_lenght - cropped_length) / 2
+    return jnp.repeat(crop_time, len(rngs))
 
 
-def random_crop_times(original_length: float, cropped_length: float) -> callable:
+def _random_crop_times(
+    rngs: jax.Array, original_length: float, cropped_length: float
+) -> jax.Array:
     """
     Generate random crop times.
     """
 
-    def _crop_times(inputs: Array, rngs: Array) -> dict[str, Array]:
-        rngs, crop_rngs = _batch_rng_split(rngs, 2)
-        crop_times = _batch_uniform(crop_rngs, 0, original_length - cropped_length)
-        return {"crop_times": crop_times, "rngs": rngs}
-
-    return _crop_times
+    crop_times = _batch_uniform(rngs, 0, original_length - cropped_length)
+    return crop_times
 
 
 def crop_inputs(
-    crop_times_generator_fn: Union[centered_crop_times, random_crop_times],
-    original_length: float,
-    cropped_length: float,
-) -> callable:
+    batch, crop_type: str, original_length: float, cropped_length: float, axis: int = -2
+):
     """
     Return a function that applies crop augmentation to a batch of images.
     """
 
-    crop_times_fn = crop_times_generator_fn(original_length, cropped_length)
-    crop_arrays = _crop_arrays(original_length, cropped_length)
+    crop_arrays_fn = _get_crop_arrays_fn(original_length, cropped_length, axis)
+    crop_times_generator = (
+        _random_crop_times if crop_type.upper() == "RANDOM" else _centered_crop_times
+    )
 
-    def _crop_inputs(batch):
-        crop_times = crop_times_fn(batch["inputs"])
-        cropped_inputs = crop_arrays(batch["inputs"], crop_times)
-        return batch | {"inputs": cropped_inputs, "crop_times": crop_times}
+    batch, _rngs = utils.split_rngs(batch)
+    crop_times = crop_times_generator(_rngs, original_length, cropped_length)
+    cropped_inputs = crop_arrays_fn(batch["inputs"], crop_times)
 
-    return _crop_inputs
+    return batch | {"inputs": cropped_inputs, "crop_times": crop_times}
 
 
-@partial(jax.vmap, in_axes=(0, None, 0))
-def rectangular_mask(
-    rng: jax.random.KeyArray, approximate_ratio: float, image_shape
-) -> (Array, float):
+@partial(jax.vmap, in_axes=(0, 0, None))
+def _rectangular_mask(
+    rng: jax.Array, approximate_ratio: float, image_shape
+) -> (jax.Array, float):
     """
     Generate a mask matrix full of 1s, except for a rectangular region of 0s.
     The fraction of the image that is masked is roughly equal to the ratio parameter.
@@ -110,7 +101,9 @@ def rectangular_mask(
 
     rng, rng_row, rng_col = jax.random.split(rng, 3)
 
-    mask_shape = jnp.int32(jnp.array(image_shape) * jnp.sqrt(1 - approximate_ratio))
+    mask_shape = jnp.int32(
+        jnp.array(image_shape)[None, ...] * jnp.sqrt(1 - approximate_ratio)[..., None]
+    )[0]
 
     # Generate coordinates for one corner of the masked region
     row_begin = jax.random.randint(rng_row, (1,), 0, image_shape[0] - mask_shape[0])
@@ -139,7 +132,7 @@ def rectangular_mask(
     return img[..., None], actual_ratio
 
 
-def preprocess_beta_params(
+def _preprocess_beta_params(
     beta_params: float | list[float] | None,
 ) -> list[float] | None:
     """
@@ -158,7 +151,7 @@ def preprocess_beta_params(
     return beta_params
 
 
-def permute(arrays: list[Array], rng: Array) -> list[Array]:
+def _permute(arrays: list[jax.Array], rng: jax.Array) -> list[jax.Array]:
     """
     Create a consistent random permutation of the given arrays.
     """
@@ -168,105 +161,84 @@ def permute(arrays: list[Array], rng: Array) -> list[Array]:
     return arrays
 
 
-def mix(array: Array, array2: Array | None, mixing: Array | float) -> Array:
+def _mix(
+    array: jax.Array, array2: jax.Array | None, mixing: jax.Array | float
+) -> jax.Array:
     """
     Mix two arrays together using the given mixing mask.
     If array2 is None, 0 values are used.
     """
+    if isinstance(mixing, float):
+        mixing = jnp.repeat(mixing, len(array))
+
+    if len(mixing.shape) == 1:
+        array_rank = len(array.shape)
+        mixing = mixing.reshape((len(mixing),) + (1,) * (array_rank - 1))
 
     if array2 is None:
         return array * mixing
     return array * mixing + array2 * (1 - mixing)
 
 
-def cutout(
-    beta_params: float | list[float] | None = 1.0, mask_fn=rectangular_mask
-) -> callable:
+def cutout(batch, beta_params, mask_fn=_rectangular_mask):
     """
     Return a function that applies cutout to a batch of images.
     """
 
-    beta_params = preprocess_beta_params(beta_params)
+    beta_params = _preprocess_beta_params(beta_params)
 
     if beta_params is None:
         return lambda batch: batch
 
-    def _cutout(batch):
-        inputs = batch["inputs"]
+    batch, rngs_ratios, rngs_mask = utils.split_rngs(batch, 2)
 
-        rngs, rngs_ratios, rngs_mask = _batch_rng_split(batch["rngs"], 3)
-        ratios = _batch_beta(rngs_ratios, *beta_params)
+    ratios = _batch_beta(rngs_ratios, *beta_params)
+    masks, _ = mask_fn(rngs_mask, ratios, batch["inputs"].shape[1:])
 
-        masks, _ = mask_fn(rngs_mask, ratios, inputs.shape[1:])
+    inputs = _mix(batch["inputs"], None, masks)
 
-        inputs = mix(inputs, None, masks)
-
-        return batch | {"inputs": inputs, "rngs": rngs}
-
-    return _cutout
+    return batch | {"inputs": inputs}
 
 
-def mixup(beta_params: float | list[float] | None = 1.0) -> callable:
+def mixup(batch, beta_params):
     """
-    Return a function that applies mixup to a batch of images.
+    Apply mixup to a batch of images.
     """
 
-    beta_params = preprocess_beta_params(beta_params)
-
+    beta_params = _preprocess_beta_params(beta_params)
     if beta_params is None:
-        return lambda batch: batch
+        return batch
 
-    def _mixup(batch):
-        inputs = batch["inputs"]
+    batch, rngs = utils.split_rngs(batch)
+    batch, rng = utils.split_rng(batch)
 
-        rngs, rngs_ratios = _batch_rng_split(batch["rngs"], 2)
-        ratios = _batch_beta(rngs_ratios, *beta_params)
+    ratios = _batch_beta(rngs, *beta_params)
 
-        rng, rng_permutation = jax.random.split(batch["rng"], 2)
-        inputs2, label_probs2 = permute([inputs, label_probs], rng_permutation)
+    inputs2, label_probs2 = _permute([batch["inputs"], batch["label_probs"]], rng)
+    inputs = _mix(batch["inputs"], inputs2, ratios)
+    label_probs = _mix(batch["label_probs"], label_probs2, ratios)
 
-        inputs = mix(inputs, inputs2, ratios)
-        label_probs = mix(label_probs, label_probs2, ratios)
-
-        return batch | {
-            "inputs": inputs,
-            "label_probs": label_probs,
-            "rngs": rngs,
-            "rng": rng,
-        }
-
-    return _mixup
+    return batch | {"inputs": inputs, "label_probs": label_probs}
 
 
-def cutmix(beta_params=[1.0, 1.0], mask_fn=rectangular_mask) -> callable:
+def cutmix(batch, beta_params, mask_fn=_rectangular_mask):
     """
     Return a function that applies cutmix to a batch of images.
     """
 
-    beta_params = preprocess_beta_params(beta_params)
+    beta_params = _preprocess_beta_params(beta_params)
 
     if beta_params is None:
         return lambda batch: batch
 
-    def _cutmix(batch):
-        inputs = batch["inputs"]
-        label_probs = batch["label_probs"]
+    batch, rngs_ratios, rngs_mask = utils.split_rngs(batch, 2)
+    batch, rng = utils.split_rng(batch)
 
-        rngs, rngs_ratios, rngs_mask = _batch_rng_split(batch["rngs"], 3)
-        ratios = _batch_beta(rngs_ratios, *beta_params)
-        masks, actual_ratios = mask_fn(rngs_mask, ratios, inputs.shape[1:3])
+    ratios = _batch_beta(rngs_ratios, *beta_params)
+    masks, actual_ratios = mask_fn(rngs_mask, ratios, batch["inputs"].shape[1:3])
 
-        rng, rng_permutation = jax.random.split(batch["rng"], 2)
-        inputs2, label_probs2 = permute([inputs, label_probs], rng_permutation)
+    inputs2, label_probs2 = _permute([batch["inputs"], batch["label_probs"]], rng)
+    inputs = _mix(batch["inputs"], inputs2, masks)
+    label_probs = _mix(batch["label_probs"], label_probs2, actual_ratios)
 
-        inputs = mix(inputs, inputs2, masks)
-        label_probs = mix(label_probs, label_probs2, actual_ratios)
-
-        return batch | {
-            "inputs": inputs,
-            "label_probs": label_probs,
-            "rngs": rngs,
-            "rng": rng,
-        }
-
-    return _cutmix
+    return batch | {"inputs": inputs, "label_probs": label_probs}

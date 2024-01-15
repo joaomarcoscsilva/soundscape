@@ -4,8 +4,7 @@ from typing import Callable
 import jax
 from jax import numpy as jnp
 
-from soundscape import augment, composition, settings
-from soundscape.composition import State
+from soundscape import augment
 
 
 def assert_all_different(values_list):
@@ -14,332 +13,153 @@ def assert_all_different(values_list):
             assert not jnp.allclose(values_list[i], values_list[j])
 
 
-def test_batch_rngs():
-    rng1 = jax.random.PRNGKey(0)
-    rng2 = jax.random.PRNGKey(1)
-
-    rngs1 = jax.random.split(rng1, 10)
-    rngs2 = jax.random.split(rng2, 10)
-
-    split_rngs1, _rngs1 = augment._batch_rng_split(rngs1, 2)
-    split_rngs2, _rngs2 = augment._batch_rng_split(rngs2, 2)
-
-    assert_all_different([split_rngs1, split_rngs2, _rngs1, _rngs2, rngs1, rngs2])
-
-    uniform_1 = augment._batch_uniform(_rngs1, 0, 10)
-    uniform_2 = augment._batch_uniform(_rngs2, 0, 10)
-
-    assert_all_different([uniform_1, uniform_2])
-
-    assert jnp.all(uniform_1 < 10)
-    assert jnp.all(uniform_2 < 10)
-
-    assert jnp.all(uniform_1 >= 0)
-    assert jnp.all(uniform_2 >= 0)
+def assert_all_close(values_list):
+    for i in range(len(values_list)):
+        for j in range(i + 1, len(values_list)):
+            assert jnp.allclose(values_list[i], values_list[j])
 
 
-def test_crop_arrays():
-    batch = State({"inputs": jnp.arange(60)[None, ...], "crop_times": jnp.array([2])})
-
-    cropped_batch = augment._crop_arrays(
-        original_length=60.0, cropped_length=6.0, axis=1
-    )(batch)
-
-    assert jnp.allclose(cropped_batch["inputs"], jnp.arange(2, 8))
-
-    batch["inputs"] = jnp.arange(60).reshape(1, 1, 60, 1)
-    cropped_batch = augment._crop_arrays(
-        original_length=60.0, cropped_length=6.0, axis=2
-    )(batch)
-
-    assert jnp.allclose(cropped_batch["inputs"], jnp.arange(2, 8).reshape(1, 1, 6, 1))
+def assert_equal_channels(image_batch):
+    assert jnp.allclose(image_batch[..., 0], image_batch[..., 1])
+    assert jnp.allclose(image_batch[..., 0], image_batch[..., 2])
 
 
-def test_crop_times():
-    original_length = 20.0
-    cropped_length = 12.0
-
-    crop_times = augment.centered_crop_times(
-        original_lenght=original_length, cropped_length=cropped_length
-    )(jnp.arange(10))
-
-    assert jnp.allclose(crop_times, jnp.repeat(4.0, 10))
-
-    crop_times, new_rngs = augment.random_crop_times(
-        original_length=original_length, cropped_length=cropped_length
-    )(jnp.arange(10), jax.random.split(jax.random.key(0), 10))
-
-    assert jnp.all(crop_times < 8.0)
-    assert jnp.all(crop_times >= 0.0)
-    assert crop_times.shape == (10,)
-    assert crop_times.std() > 0.1
-    assert new_rngs.shape == (10,)
-    assert not jnp.allclose(new_rngs, jax.random.split(jax.random.key(0), 10))
+def assert_all_constant(image_batch):
+    flat_image_batch = image_batch.reshape(len(image_batch), -1)
+    assert jnp.allclose(flat_image_batch.min(1), flat_image_batch.max(1))
 
 
-def test_deterministic_time_crop():
-    arr = jnp.arange(120).reshape(1, 2, 60, 1)
-    crop_fn = augment.deterministic_time_crop(
-        segment_length=60, cropped_length=4, extension="png"
-    )
-    new_arr = crop_fn({"inputs": arr})["inputs"]
+def assert_nondeterministic_probabilities(label_probs_batch):
+    assert 0 <= label_probs_batch.max() <= 1
+    assert jnp.allclose(label_probs_batch.sum(1), 1)
 
-    assert jnp.allclose(
-        new_arr,
-        jnp.array([[28, 29, 30, 31], [88, 89, 90, 91]]).reshape((1, 2, -1, 1)),
-    )
-
-    arr = jnp.arange(100).reshape((2, 50))
-    crop_fn = augment.deterministic_time_crop(
-        segment_length=5, cropped_length=3, extension="wav"
-    )
-    new_arr = crop_fn({"inputs": arr})["inputs"]
-
-    assert jnp.allclose(
-        new_arr,
-        jnp.array([range(10, 40), range(60, 90)]),
-    )
+    assert label_probs_batch.std(1).max() > 0
+    assert label_probs_batch.std(0).max() > 0
 
 
-def test_random_time_crop():
-    with settings.Settings(
-        {"segment_length": 60, "cropped_length": 4, "extension": "png"}
-    ):
-        rng1 = jax.random.PRNGKey(0)[None, ...]
-        rng2 = jax.random.PRNGKey(1)[None, ...]
+def assert_all_rectangular(image_batch, bg_colors):
+    """
+    Assert that all images in the batch are a solid background color
+    with a solid rectangular shape inside.
+    """
 
-        arr = jnp.arange(120).reshape(1, 2, 60, 1)
-        new_values_1 = augment.random_time_crop()({"inputs": arr, "rngs": rng1})
-        new_values_1_copy = augment.random_time_crop()({"inputs": arr, "rngs": rng1})
-        new_values_2 = augment.random_time_crop()({"inputs": arr, "rngs": rng2})
+    if isinstance(bg_colors, int):
+        bg_colors = jnp.repeat(bg_colors, len(image_batch))
 
-        assert_all_different([rng1, rng2, new_values_1["rngs"], new_values_2["rngs"]])
-        assert jnp.allclose(new_values_1["rngs"], new_values_1_copy["rngs"])
+    for i, image in enumerate(image_batch):
+        mask = image != bg_colors[i]
 
-        new_arr_1 = new_values_1["inputs"]
-        new_arr_1_copy = new_values_1_copy["inputs"]
-        new_arr_2 = new_values_2["inputs"]
+        if mask.any():
+            nonzero_xs, nonzero_ys = jnp.nonzero(mask[..., 0])
+            min_row, max_row = nonzero_xs.min(), nonzero_xs.max()
+            min_col, max_col = nonzero_ys.min(), nonzero_ys.max()
 
-        assert jnp.allclose(new_arr_1, new_arr_1_copy)
-        assert not jnp.allclose(new_arr_1, new_arr_2)
-        assert new_arr_1.shape == (1, 2, 4, 1)
-
-    with settings.Settings(
-        {"segment_length": 5, "cropped_length": 3, "extension": "wav"}
-    ):
-        rng1 = jax.random.PRNGKey(0)
-        rng2 = jax.random.PRNGKey(1)
-        rng1 = jax.random.split(rng1, 2)
-        rng2 = jax.random.split(rng2, 2)
-
-        arr = jnp.arange(100).reshape((2, 50))
-        new_arr_1 = augment.random_time_crop()({"inputs": arr, "rngs": rng1})["inputs"]
-        new_arr_1_copy = augment.random_time_crop()({"inputs": arr, "rngs": rng1})[
-            "inputs"
-        ]
-        new_arr_2 = augment.random_time_crop()({"inputs": arr, "rngs": rng2})["inputs"]
-
-        assert jnp.allclose(new_arr_1, new_arr_1_copy)
-        assert not jnp.allclose(new_arr_1, new_arr_2)
-        assert new_arr_1.shape == (2, 30)
+            assert jnp.allclose(mask[min_row : max_row + 1, min_col : max_col + 1], 1)
 
 
-def test_time_crop():
-    with settings.Settings(
-        {"segment_length": 60, "cropped_length": 4, "extension": "png"}
-    ):
-        fn = augment.time_crop(crop_type="deterministic")
-        assert isinstance(fn, Callable)
+def test_centered_crops():
+    batch = {"inputs": jnp.arange(500)[None, ...]}
+    key1 = {"rng": jax.random.PRNGKey(0)}
+    key2 = {"rng": jax.random.PRNGKey(1)}
 
-        fn = augment.time_crop(crop_type="random")
-        assert isinstance(fn, Callable)
+    cropped = augment.crop_inputs(batch | key1, "center", 5, 3, 0)["inputs"]
+    cropped2 = augment.crop_inputs(batch | key2, "center", 5, 3, 0)["inputs"]
 
-        fn = augment.time_crop(crop_type="<invalid>")
-        assert fn is composition.identity
+    assert_all_close([cropped, cropped2, jnp.arange(100, 400)[None, ...]])
 
 
-def test_rectangular_mask():
-    rng = jax.random.PRNGKey(0)
-    rngs = jax.random.split(rng, 2)
+def test_random_crops():
+    batch = {"inputs": jnp.arange(500)[None, ...]}
+    key1 = {"rng": jax.random.PRNGKey(0)}
+    key2 = {"rng": jax.random.PRNGKey(1)}
 
-    image_shape = (1024, 2048, 3)
-    ratios = jnp.array([0.5, 0.1])
+    cropped = augment.crop_inputs(batch | key1, "random", 5, 3, 0)["inputs"]
+    cropped2 = augment.crop_inputs(batch | key2, "random", 5, 3, 0)["inputs"]
 
-    masks, actual_ratios = augment.rectangular_mask(rngs, image_shape, ratios)
-
-    assert masks.shape == (2, 1024, 2048, 1)
-    assert jnp.allclose(masks.reshape((2, -1)).mean(1), ratios, atol=0.01)
-    assert masks.min() == 0
-    assert masks.max() == 1
-
-    rngs2 = augment.batch_split(rngs, 2)[0]
-    masks2, actual_ratios2 = augment.rectangular_mask(rngs2, image_shape, ratios)
-
-    assert not jnp.allclose(masks, masks2)
+    assert cropped.shape == cropped2.shape == (1, 300)
+    assert not jnp.allclose(cropped, cropped2)
 
 
 def test_cutout():
-    fn = augment.cutout(beta_params=None)
-    assert fn == composition.identity
+    # The original image batch contains images with all pixels set to 2
+    batch = {"inputs": jnp.ones((64, 100, 100, 3)) * 2}
+    key1 = {"rng": jax.random.PRNGKey(0)}
+    key2 = {"rng": jax.random.PRNGKey(1)}
 
-    fn = augment.cutout(beta_params=1.0)
+    cut = augment.cutout(batch | key1, 1)["inputs"]
+    cut2 = augment.cutout(batch | key2, 1)["inputs"]
 
-    rng1 = jax.random.PRNGKey(0)
-    rngs1 = jax.random.split(rng1, 1024)
-    rng2 = jax.random.PRNGKey(1)
-    rngs2 = jax.random.split(rng2, 1024)
+    assert not jnp.allclose(cut, cut2)
 
-    x = jnp.ones((1024, 10, 20, 3)) * 2
+    assert cut.shape == batch["inputs"].shape
+    assert cut.min() == 0
+    assert cut.max() == 2
 
-    v1 = fn({"inputs": x, "rngs": rngs1})
-    v2 = fn({"inputs": x, "rngs": rngs2})
+    assert jnp.allclose(cut.mean(), 1.0, atol=0.2)
 
-    assert_all_different([rngs1, rngs2, v1["rngs"], v2["rngs"]])
-
-    x1 = v1["inputs"]
-    x2 = v2["inputs"]
-
-    assert not jnp.allclose(x1, x2)
-
-    assert x1.shape == x2.shape == x.shape
-    assert x1.min() == 0
-    assert x2.min() == 0
-    assert x1.max() == 2
-    assert x2.max() == 2
-
-    assert jnp.allclose(x1.mean(), 1.0, atol=0.2)
-    assert jnp.allclose(x2.mean(), 1.0, atol=0.2)
-
-    assert jnp.allclose(x1[..., 0], x1[..., 1])
-    assert jnp.allclose(x1[..., 0], x1[..., 2])
-    assert jnp.allclose(x2[..., 0], x2[..., 2])
-    assert jnp.allclose(x2[..., 0], x2[..., 2])
-
-    assert x1[..., 0].all(1).max(1).min() == 1
-    assert x1[..., 0].all(2).max(1).min() == 1
-    assert x2[..., 0].all(1).max(1).min() == 1
-    assert x2[..., 0].all(2).max(1).min() == 1
+    assert_equal_channels(cut)
+    assert_all_rectangular(cut[:8], 2)
+    assert_all_different(cut[:32])
 
 
 def test_mixup():
-    fn = augment.mixup(beta_params=None)
-    assert fn == composition.identity
+    num_classes = 5
+    batch = {
+        "inputs": jnp.ones((64, 100, 100, 3)) * jnp.arange(64).reshape(-1, 1, 1, 1),
+        "label_probs": jax.nn.one_hot(jnp.arange(64) % num_classes, num_classes),
+    }
+    key1 = {"rng": jax.random.PRNGKey(0)}
+    key2 = {"rng": jax.random.PRNGKey(1)}
 
-    fn = augment.mixup(beta_params=1.0)
+    mixed = augment.mixup(batch | key1, 1.0)
+    mixed2 = augment.mixup(batch | key2, 1.0)
 
-    rng1 = jax.random.PRNGKey(0)
-    rngs1 = jax.random.split(rng1, 1024)
-    rng2 = jax.random.PRNGKey(1)
-    rngs2 = jax.random.split(rng2, 1024)
+    assert not jnp.allclose(mixed["inputs"], mixed2["inputs"])
 
-    x = jnp.ones((1024, 10, 20, 3))
-    x = x * jnp.arange(1024).reshape((1024, 1, 1, 1))
+    assert mixed["inputs"].shape == batch["inputs"].shape
+    assert mixed["inputs"].min() >= 0
+    assert mixed["inputs"].max() <= 63
 
-    lbls = jnp.arange(1024) % 5
-    lbls = jax.nn.one_hot(lbls, 5)
+    assert jnp.allclose(mixed["inputs"].mean(), batch["inputs"].mean(), atol=0.2)
 
-    v1 = fn({"inputs": x, "rng": rng1, "rngs": rngs1, "one_hot_labels": lbls})
-    v2 = fn({"inputs": x, "rng": rng2, "rngs": rngs2, "one_hot_labels": lbls})
+    assert_all_different(mixed["inputs"])
+    assert_all_constant(mixed["inputs"])
 
-    assert_all_different([rngs1, rngs2, v1["rngs"], v2["rngs"]])
+    assert not jnp.allclose(mixed["label_probs"], mixed2["label_probs"])
 
-    x1 = v1["inputs"]
-    x2 = v2["inputs"]
+    assert mixed["label_probs"].shape == batch["label_probs"].shape
+    assert mixed["label_probs"].min() == 0
 
-    assert not jnp.allclose(x1, x2)
-
-    assert x1.shape == x2.shape == x.shape
-
-    assert x1.min() >= 0
-    assert x2.min() >= 0
-    assert not jnp.allclose(x1.min(), x2.min())
-    assert x1.max() <= 1024
-    assert x2.max() <= 1024
-    assert not jnp.allclose(x1.max(), x2.max())
-
-    assert jnp.allclose(x1[..., 0], x1[..., 1])
-    assert jnp.allclose(x1[..., 0], x1[..., 2])
-    assert jnp.allclose(x2[..., 0], x2[..., 2])
-    assert jnp.allclose(x2[..., 0], x2[..., 2])
-
-    assert x1.reshape(-1, 1).std(1).max() == 0
-    assert x2.reshape(-1, 1).std(1).max() == 0
-
-    assert jnp.allclose(x1.mean(), 511.5, atol=5)
-    assert jnp.allclose(x2.mean(), 511.5, atol=5)
-
-    lbls1 = v1["one_hot_labels"]
-    lbls2 = v2["one_hot_labels"]
-
-    assert lbls1.shape == lbls2.shape == lbls.shape
-    assert jnp.allclose(lbls1.sum(1), 1)
-    assert jnp.allclose(lbls2.sum(1), 1)
-    assert lbls1.std(1).max() > 0
-    assert lbls2.std(1).max() > 0
-    assert lbls1.std(0).max() > 0
-    assert lbls2.std(0).max() > 0
-    assert not jnp.allclose(lbls1, lbls2)
-
-    rng3 = jax.random.PRNGKey(2)
-    rngs3 = jax.random.split(rng3, 20)
-    x3 = jax.random.uniform(rng3, (20, 10, 20, 3))
-    lbls3 = jnp.eye(20)
-
-    v3 = fn({"inputs": x3, "rng": rng3, "rngs": rngs3, "one_hot_labels": lbls3})
-
-    new_x3 = v3["inputs"]
-
-    assert x3.shape == new_x3.shape
-    assert not jnp.allclose(x3, new_x3)
-
-    all_x3 = jnp.concatenate([x3, new_x3], 0).reshape(40, -1)
-    assert jnp.linalg.matrix_rank(all_x3) == 20
+    assert_nondeterministic_probabilities(mixed["label_probs"])
 
 
 def test_cutmix():
-    fn = augment.cutmix(beta_params=None)
-    assert fn == composition.identity
+    num_classes = 5
+    batch = {
+        "inputs": jnp.ones((512, 100, 100, 3)) * jnp.arange(512).reshape(-1, 1, 1, 1),
+        "label_probs": jax.nn.one_hot(jnp.arange(512) % num_classes, num_classes),
+    }
+    key1 = {"rng": jax.random.PRNGKey(0)}
+    key2 = {"rng": jax.random.PRNGKey(1)}
 
-    fn = augment.cutmix(beta_params=1.0)
+    mixed = augment.cutmix(batch | key1, 1.0)
+    mixed2 = augment.cutmix(batch | key2, 1.0)
 
-    rng1 = jax.random.PRNGKey(0)
-    rngs1 = jax.random.split(rng1, 100)
-    rng2 = jax.random.PRNGKey(1)
-    rngs2 = jax.random.split(rng2, 100)
+    assert not jnp.allclose(mixed["inputs"], mixed2["inputs"])
 
-    x = jnp.ones((100, 10, 20, 3))
-    x = x * jnp.arange(100).reshape((100, 1, 1, 1)) % 10
+    assert mixed["inputs"].shape == batch["inputs"].shape
+    assert mixed["inputs"].min() >= 0
+    assert mixed["inputs"].max() <= 511
 
-    lbls = jnp.arange(100) % 5
-    lbls = jax.nn.one_hot(lbls, 5)
+    assert jnp.allclose(mixed["inputs"].mean(), batch["inputs"].mean(), atol=1)
 
-    v1 = fn({"inputs": x, "rng": rng1, "rngs": rngs1, "one_hot_labels": lbls})
-    v2 = fn({"inputs": x, "rng": rng2, "rngs": rngs2, "one_hot_labels": lbls})
+    assert_equal_channels(mixed["inputs"])
+    assert_all_rectangular(mixed["inputs"][:8], jnp.arange(512))
+    assert_all_different(mixed["inputs"][:64])
 
-    assert_all_different([rngs1, rngs2, v1["rngs"], v2["rngs"]])
+    assert not jnp.allclose(mixed["label_probs"], mixed2["label_probs"])
 
-    x1 = v1["inputs"]
-    x2 = v2["inputs"]
+    assert mixed["label_probs"].shape == batch["label_probs"].shape
+    assert mixed["label_probs"].min() == 0
 
-    assert not jnp.allclose(x1, x2)
-
-    assert x1.shape == x2.shape == x.shape
-
-    assert x1.min() == 0
-    assert x2.min() == 0
-    assert x1.max() == 9
-    assert x2.max() == 9
-
-    assert jnp.allclose(x1[..., 0], x1[..., 1])
-    assert jnp.allclose(x1[..., 0], x1[..., 2])
-    assert jnp.allclose(x2[..., 0], x2[..., 2])
-    assert jnp.allclose(x2[..., 0], x2[..., 2])
-
-    assert (x1 == x)[..., 0].all(1).max(1).min() == 1
-    assert (x1 == x)[..., 0].all(2).max(1).min() == 1
-    assert (x2 == x)[..., 0].all(1).max(1).min() == 1
-    assert (x2 == x)[..., 0].all(2).max(1).min() == 1
-
-    print(x1.mean(), x2.mean())
-    assert jnp.allclose(x1.mean(), 4.5, atol=0.2)
-    assert jnp.allclose(x2.mean(), 4.5, atol=0.2)
+    assert_nondeterministic_probabilities(mixed["label_probs"])
