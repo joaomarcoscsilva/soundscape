@@ -1,39 +1,81 @@
+from typing import Callable
+
 import jax
 import optax
 from jax import numpy as jnp
 
-from .typechecking import Array
+from soundscape.dataset.dataloading import Batch
+from soundscape.models.base_model import Predictions
+
+MetricFn = Callable[[Batch, Predictions], dict]
 
 
-def crossentropy(logits: Array, label_probs: Array) -> Array:
-    return optax.softmax_cross_entropy(logits=logits, labels=label_probs)
+def compose(fns: list[MetricFn]):
+    def _compose(batch: Batch, outputs: Predictions) -> jax.Array:
+        for fn in fns:
+            outputs = outputs | fn(batch, outputs)
+
+        return outputs
+
+    return _compose
 
 
-def brier(logits: Array, label_probs: Array) -> Array:
-    pred_probs = jax.nn.softmax(logits)
-    return jnp.sum((pred_probs - label_probs) ** 2, axis=-1)
+def weighted(metric_fn: MetricFn, weights=jnp.ones(1)) -> MetricFn:
+    if weights is None:
+        return metric_fn
+
+    def _weight(w, v):
+        w = w.reshape((-1,) + (1,) * (v.ndim - 1))
+        return v * w
+
+    def _weighted(batch, outputs: Predictions) -> jax.Array:
+        w = weights[batch["labels"]]
+        outs = metric_fn(batch, outputs)
+        outs = {k: _weight(w, v) for k, v in outs.items()}
+        return outs
+
+    return _weighted
 
 
-def probs(logits: Array) -> Array:
-    return jax.nn.softmax(logits)
+def logits(out_key, logits_key="logits") -> MetricFn:
+    def _logits(batch: Batch, outputs: Predictions) -> jax.Array:
+        return {out_key: outputs[logits_key]}
+
+    return _logits
 
 
-def preds(probs: Array) -> Array:
-    return probs.argmax(axis=-1)
+def preds(out_key, logits_key="logits") -> MetricFn:
+    def _preds(batch: Batch, outputs: Predictions) -> jax.Array:
+        return {out_key: jnp.argmax(outputs[logits_key], axis=-1)}
+
+    return _preds
 
 
-def accuracy(preds: Array, labels: Array) -> Array:
-    return preds == labels
+def probs(out_key, logits_key="logits") -> MetricFn:
+    def _probs(batch: Batch, outputs: Predictions) -> jax.Array:
+        return {out_key: jax.nn.softmax(outputs[logits_key])}
+
+    return _probs
 
 
-def weight_metric(
-    metric: Array, labels: Array, class_weights: None | Array = jnp.ones(1)
-) -> Array:
-    if class_weights is None:
-        return metric
+def crossentropy(out_key, logits_key="logits") -> MetricFn:
+    def _crossentropy(batch: Batch, outputs: Predictions) -> jax.Array:
+        ce = optax.softmax_cross_entropy(outputs[logits_key], batch["label_probs"])
+        return {out_key: ce}
 
-    return metric * class_weights[labels]
+    return _crossentropy
 
 
-def mean_metric(metric: Array) -> Array:
-    return metric.mean()
+def brier(out_key, logits_key="logits") -> MetricFn:
+    def _brier(batch: Batch, outputs: Predictions) -> jax.Array:
+        pred_probs = jax.nn.softmax(outputs[logits_key])
+        return {out_key: jnp.sum((pred_probs - batch["label_probs"]) ** 2, axis=-1)}
+
+    return _brier
+
+
+def accuracy(out_key, logits_key="logits") -> MetricFn:
+    def _accuracy(batch: Batch, outputs: Predictions) -> jax.Array:
+        return {out_key: outputs[logits_key].argmax(-1) == batch["labels"]}
+
+    return _accuracy
