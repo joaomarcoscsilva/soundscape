@@ -8,6 +8,7 @@ import librosa
 import pandas as pd
 import soundfile
 import tensorflow as tf
+from omegaconf import DictConfig
 from p_tqdm import p_map
 
 from . import preprocess, split
@@ -41,29 +42,35 @@ def load_labels_dataframe(labels_file: str) -> pd.DataFrame:
 
 @dataclass
 class Dataset:
+    """
+    Represent an entire dataset. For training, use the DataLoader class.
+
+    The preprocessing function below should only be called once per dataset,
+    since its results are saved in the specified dataset dir.
+    """
+
     dataset_dir: str = None
     data_type: str = None
-    class_order: list[str] = None
     sample_length: float = None
     sr: int = None
     source_dir: str = None
 
-    splitting: dict = None
-    preprocessing: dict = None
+    splitting: DictConfig = None
+    preprocessing: DictConfig = None
 
     def preprocess(self):
-        df = load_labels_dataframe(self.preprocessing["labels_file"])
+        df = load_labels_dataframe(self.preprocessing.labels_file)
         df = split.split_dataframe(df, **self.splitting)
         df_files = list(df.groupby("file"))
         p_map(self._process_file, df_files)
 
-    def _reading_function(self) -> Callable[[str], tf.Tensor]:
+    def reading_function(self) -> Callable[[str], tf.Tensor]:
         if self.data_type == "audio":
             return _read_audio_file
 
         elif self.data_type == "image":
             return partial(
-                _read_image_file, image_precision=self.preprocessing["image_precision"]
+                _read_image_file, image_precision=self.preprocessing.image_precision
             )
 
         else:
@@ -96,13 +103,13 @@ class Dataset:
 
             if self.data_type == "image":
                 spectrogram = preprocess.generate_melspectrogram(
-                    cropped_audio, sr, self.preprocessing["spectrogram_kwargs"]
+                    cropped_audio, sr, self.preprocessing.spectrogram_kwargs
                 )
 
                 spectrogram = preprocess.process_melspectrogram(
                     spectrogram,
-                    self.preprocessing["image_precision"],
-                    self.preprocessing["thresholds"],
+                    self.preprocessing.image_precision,
+                    self.preprocessing.thresholds,
                 )
 
                 imageio.imwrite(output_filename + ".png", spectrogram)

@@ -1,6 +1,7 @@
 import os
 
 import tensorflow as tf
+from omegaconf import DictConfig
 
 from soundscape.dataset import dataset
 
@@ -32,10 +33,13 @@ def test_labels_dataframe():
 def test_dataset_reading_fn():
     filename = "test/test_dataset/data/0.wav"
     ds = dataset.Dataset(data_type="audio")
-    wav = ds._reading_function()(filename)
+    wav = ds.reading_function()(filename)
     assert tf.reduce_all(wav == dataset._read_audio_file(filename))
 
     filename = "test/test_dataset/data/0.png"
-    ds = dataset.Dataset(data_type="image", preprocessing={"image_precision": 16})
-    img = ds._reading_function()(filename)
+    ds = dataset.Dataset(
+        data_type="image",
+        preprocessing=DictConfig({"image_precision": 16}),
+    )
+    img = ds.reading_function()(filename)
     assert tf.reduce_all(img == dataset._read_image_file(filename, 16))

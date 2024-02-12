@@ -1,59 +1,34 @@
-import glob
 import os
 
 import hydra
 import jax
 import numpy as np
-import pandas as pd
 import pytest
 import tensorflow as tf
 from jax import numpy as jnp
 from jax import random
 
-from soundscape.dataset import dataloading, dataset
+from soundscape.dataset import dataloading
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-CLASSES = [
-    "basi_culi",
-    "myio_leuc",
-    "vire_chiv",
-    "cycl_guja",
-    "pita_sulp",
-    "zono_cape",
-    "dend_minu",
-    "apla_leuc",
-    "isch_guen",
-    "phys_cuvi",
-    "boan_albo",
-    "aden_marm",
-]
+TESTING_BATCHES = 5
 
 
-def class_to_binary(class_):
-    """
-    Convert a class from the 13-class dataset to a binary class indicating whether
-    the corresponding species is a bird or a frog.
-    """
-
-    return 0 if CLASSES.index(class_) < 6 else 1
-
-
-def get_ds():
-    with hydra.initialize("../../new_settings", version_base=None):
-        settings = hydra.compose(config_name="dataset/leec")
-        ds = hydra.utils.instantiate(settings.dataset)
-    return ds
+def get_dataloader(name):
+    rng = random.PRNGKey(0)
+    with hydra.initialize("../../settings", version_base=None):
+        settings = hydra.compose(config_name=f"dataloader/{name}")
+        dataloader_partial = hydra.utils.instantiate(settings.dataloader)
+    return dataloader_partial(rng)
 
 
-def get_splits_metadata(ds, **kwargs):
+def get_splits_metadata(dataloader):
     rng = random.PRNGKey(0)
 
-    train_metadata = dataloading.load_split_metadata(
-        rng, "data/leec/train", ds, **kwargs
-    )
-    val_metadata = dataloading.load_split_metadata(rng, "data/leec/val", ds, **kwargs)
-    test_metadata = dataloading.load_split_metadata(rng, "data/leec/test", ds, **kwargs)
+    train_metadata = dataloader.load_split_metadata(rng, "data/leec/train")
+    val_metadata = dataloader.load_split_metadata(rng, "data/leec/val")
+    test_metadata = dataloader.load_split_metadata(rng, "data/leec/test")
 
     return train_metadata, val_metadata, test_metadata
 
@@ -91,86 +66,46 @@ def assert_roughly_balanced(*splits_metadata):
     assert np.allclose(counts.std(axis=0), 0, atol=0.05)
 
 
-def test_leec12_sizes():
-    ds = get_ds()
-
-    # Test that the number of files matches the 60/20/20 split
-    train_size = 2293
-    val_size = test_size = 758
-
-    train_metadata, val_metadata, test_metadata = get_splits_metadata(
-        ds, class_to_id=ds.class_order.index, skipped_classes=["other"]
-    )
+def assert_metadata_sizes(dataloader, num_classes, train_size, val_size, test_size):
+    train_metadata, val_metadata, test_metadata = get_splits_metadata(dataloader)
 
     assert_split_size(train_metadata, train_size)
     assert_split_size(val_metadata, val_size)
     assert_split_size(test_metadata, test_size)
 
     assert_disjoint(train_metadata, val_metadata, test_metadata)
-    assert_has_all_classes(train_metadata, val_metadata, test_metadata, num_classes=12)
+    assert_has_all_classes(
+        train_metadata, val_metadata, test_metadata, num_classes=num_classes
+    )
     assert_no_repeats(train_metadata, val_metadata, test_metadata)
     assert_roughly_balanced(train_metadata, val_metadata, test_metadata)
 
 
 def test_leec13_sizes():
-    ds = get_ds()
+    dl = get_dataloader("leec13")
+    assert_metadata_sizes(dl, 13, 9990, 3323, 3323)
+    assert dl.num_classes == 13
 
-    # Test that the number of files matches the 60/20/20 split
-    train_size = 9990
-    val_size = test_size = 3323
 
-    train_metadata, val_metadata, test_metadata = get_splits_metadata(
-        ds, class_to_id=ds.class_order.index
-    )
-
-    assert_split_size(train_metadata, train_size)
-    assert_split_size(val_metadata, val_size)
-    assert_split_size(test_metadata, test_size)
-
-    assert_disjoint(train_metadata, val_metadata, test_metadata)
-    assert_has_all_classes(train_metadata, val_metadata, test_metadata, num_classes=13)
-    assert_no_repeats(train_metadata, val_metadata, test_metadata)
-    assert_roughly_balanced(train_metadata, val_metadata, test_metadata)
+def test_leec12_sizes():
+    dl = get_dataloader("leec12")
+    assert_metadata_sizes(dl, 12, 2293, 758, 758)
+    assert dl.num_classes == 12
 
 
 def test_leec2_sizes():
-    ds = get_ds()
-
-    # Test that the number of files matches the 60/20/20 split
-    train_size = 2293
-    val_size = test_size = 758
-
-    train_metadata, val_metadata, test_metadata = get_splits_metadata(
-        ds, class_to_id=class_to_binary, skipped_classes=["other"]
-    )
-
-    assert_split_size(train_metadata, train_size)
-    assert_split_size(val_metadata, val_size)
-    assert_split_size(test_metadata, test_size)
-
-    assert_disjoint(train_metadata, val_metadata, test_metadata)
-    assert_has_all_classes(train_metadata, val_metadata, test_metadata, num_classes=2)
-    assert_no_repeats(train_metadata, val_metadata, test_metadata)
-    assert_roughly_balanced(train_metadata, val_metadata, test_metadata)
+    dl = get_dataloader("leec2")
+    assert_metadata_sizes(dl, 2, 2293, 758, 758)
+    assert dl.num_classes == 2
 
 
-def test_leec12_dataloader():
-    ds = get_ds()
-    rng = jax.random.PRNGKey(0)
-
-    dataloader = dataloading.DataLoader(
-        rng,
-        ds,
-        "image",
-        class_to_id=ds.class_order.index,
-        cache=False,
-        skipped_classes=["other"],
-    )
-
-    assert dataloader.num_classes == 12
+@pytest.mark.parametrize("dl_name", ["leec13", "leec12", "leec2"])
+def test_dataloader_shapes(dl_name):
+    rng = random.PRNGKey(0)
+    dataloader = get_dataloader(dl_name)
 
     batches = []
-    for i, batch in enumerate(dataloader.iterate(rng, "train", 32)):
+    for i, batch in enumerate(dataloader.iterate(rng, "val", 32)):
         batches.append(batch)
 
         assert batch["inputs"].shape == (32, 256, 423, 1)
@@ -179,24 +114,31 @@ def test_leec12_dataloader():
         assert batch["rng"].shape == (2,)
         assert isinstance(batch["inputs"], jax.Array)
 
+        if i == TESTING_BATCHES:
+            break
+
+
+def assert_equal_batch(batch1, batch2):
+    assert (batch1["inputs"] == batch2["inputs"]).all()
+    assert (batch1["labels"] == batch2["labels"]).all()
+    assert (batch1["rngs"] == batch2["rngs"]).all()
+    assert (batch1["rng"] == batch2["rng"]).all()
+
+
+@pytest.mark.parametrize("dl_name", ["leec13", "leec12", "leec2"])
+def test_reproducible_dataloaders(dl_name):
+    rng1 = random.PRNGKey(0)
+    batches = []
+
+    dataloader = get_dataloader(dl_name)
+    for i, batch in enumerate(dataloader.iterate(rng1, "val", 32)):
+        batches.append(batch)
         if i == 10:
             break
 
-    dataloader = dataloading.DataLoader(
-        rng,
-        ds,
-        "image",
-        class_to_id=ds.class_order.index,
-        cache=True,
-        skipped_classes=["other"],
-    )
-
-    for i, batch in enumerate(dataloader.iterate(rng, "train", 32)):
-        assert (batch["inputs"] == batches[i]["inputs"]).all()
-        assert (batch["labels"] == batches[i]["labels"]).all()
-        assert (batch["rngs"] == batches[i]["rngs"]).all()
-        assert (batch["rng"] == batches[i]["rng"]).all()
-
+    dataloader = get_dataloader(dl_name)
+    for i, batch in enumerate(dataloader.iterate(rng1, "val", 32)):
+        assert_equal_batch(batch, batches[i])
         if i == 10:
             break
 
