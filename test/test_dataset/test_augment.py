@@ -4,7 +4,7 @@ from typing import Callable
 import jax
 from jax import numpy as jnp
 
-from soundscape import augment
+from soundscape.dataset import augment
 
 
 def assert_all_different(values_list):
@@ -163,3 +163,27 @@ def test_cutmix():
     assert mixed["label_probs"].min() == 0
 
     assert_nondeterministic_probabilities(mixed["label_probs"])
+
+
+def test_split_rng():
+    batch = {"rng": jax.random.PRNGKey(1)}
+
+    batch, rng = augment._split_rng(batch)
+    assert (batch["rng"] != jax.random.PRNGKey(1)).all()
+    assert (batch["rng"] != rng).all()
+
+    batch, rng1, rng2 = augment._split_rng(batch, num_keys=2)
+    assert (batch["rng"] != rng1).all()
+    assert (batch["rng"] != rng2).all()
+    assert (rng1 != rng2).all()
+
+
+def test_split_rngs():
+    batch = {"rng": jax.random.PRNGKey(1), "inputs": jnp.ones((32,))}
+
+    batch, rngs = augment._split_rngs(batch)
+    assert (batch["rng"] != jax.random.PRNGKey(1)).all()
+    assert len(rngs) == 32
+
+    batch, rngs1, rngs2 = augment._split_rngs(batch, num_keys=2)
+    assert (rngs1 != rngs2).all()

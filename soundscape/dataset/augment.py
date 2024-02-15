@@ -1,10 +1,7 @@
 from functools import partial
-from typing import Tuple, Union
 
 import jax
 from jax import numpy as jnp
-
-from soundscape import utils
 
 """
 Define vmapped versions of some functions in jax.random.
@@ -22,6 +19,33 @@ _batch_beta = jax.vmap(
     lambda rng, a, b: jax.random.beta(rng, a=a, b=b),
     in_axes=(0, None, None),
 )
+
+_batch_rng_split = jax.vmap(
+    lambda rng, n: tuple(jax.random.split(rng, n)), in_axes=(0, None)
+)
+
+
+def _split_rng(batch, num_keys: int = 1):
+    """
+    Split a rng array from a batch
+    """
+
+    rng = batch["rng"]
+    rng = jax.random.split(rng, num_keys + 1)
+    return batch | {"rng": rng[0]}, *rng[1:]
+
+
+def _split_rngs(batch, num_keys: int = 1):
+    """
+    Split a rngs array from a batch
+    """
+
+    batch, batch_rng = _split_rng(batch)
+    batch_size = len(batch["inputs"])
+    batch_rngs = jax.random.split(batch_rng, batch_size)
+    rngs = _batch_rng_split(batch_rngs, num_keys)
+
+    return batch, *rngs
 
 
 def _get_crop_arrays_fn(
@@ -81,7 +105,7 @@ def crop_inputs(
         _random_crop_times if crop_type.upper() == "RANDOM" else _centered_crop_times
     )
 
-    batch, _rngs = utils.split_rngs(batch)
+    batch, _rngs = _split_rngs(batch)
     crop_times = crop_times_generator(_rngs, original_length, cropped_length)
     cropped_inputs = crop_arrays_fn(batch["inputs"], crop_times)
 
@@ -91,7 +115,7 @@ def crop_inputs(
 @partial(jax.vmap, in_axes=(0, 0, None))
 def _rectangular_mask(
     rng: jax.Array, approximate_ratio: float, image_shape
-) -> (jax.Array, float):
+) -> tuple[jax.Array, float]:
     """
     Generate a mask matrix full of 1s, except for a rectangular region of 0s.
     The fraction of the image that is masked is roughly equal to the ratio parameter.
@@ -145,9 +169,6 @@ def _preprocess_beta_params(
     if type(beta_params) is not list:
         beta_params = [beta_params, beta_params]
 
-    if min(beta_params) < 0:
-        return None
-
     return beta_params
 
 
@@ -188,9 +209,9 @@ def cutout(batch, beta_params, mask_fn=_rectangular_mask):
     beta_params = _preprocess_beta_params(beta_params)
 
     if beta_params is None:
-        return lambda batch: batch
+        return batch
 
-    batch, rngs_ratios, rngs_mask = utils.split_rngs(batch, 2)
+    batch, rngs_ratios, rngs_mask = _split_rngs(batch, 2)
 
     ratios = _batch_beta(rngs_ratios, *beta_params)
     masks, _ = mask_fn(rngs_mask, ratios, batch["inputs"].shape[1:])
@@ -209,8 +230,8 @@ def mixup(batch, beta_params):
     if beta_params is None:
         return batch
 
-    batch, rngs = utils.split_rngs(batch)
-    batch, rng = utils.split_rng(batch)
+    batch, rngs = _split_rngs(batch)
+    batch, rng = _split_rng(batch)
 
     ratios = _batch_beta(rngs, *beta_params)
 
@@ -229,10 +250,10 @@ def cutmix(batch, beta_params, mask_fn=_rectangular_mask):
     beta_params = _preprocess_beta_params(beta_params)
 
     if beta_params is None:
-        return lambda batch: batch
+        return batch
 
-    batch, rngs_ratios, rngs_mask = utils.split_rngs(batch, 2)
-    batch, rng = utils.split_rng(batch)
+    batch, rngs_ratios, rngs_mask = _split_rngs(batch, 2)
+    batch, rng = _split_rng(batch)
 
     ratios = _batch_beta(rngs_ratios, *beta_params)
     masks, actual_ratios = mask_fn(rngs_mask, ratios, batch["inputs"].shape[1:3])
