@@ -5,16 +5,8 @@ import jax
 from jax import numpy as jnp
 from transformers import FlaxViTForImageClassification
 
-from ..dataset.dataloading import Batch
-from .base_model import Model, ModelState, Predictions, model_creators
-
-# A dictionary of functions that return a boolean indicating whether a given
-# parameter should be trained or not.
-partition_fns = {
-    "all": lambda m, n, p: True,
-    "none": lambda m, n, p: False,
-    "head": lambda m, n, p: "logits" in m,
-}
+from ..types import Batch
+from .base_model import Model, ModelState, Predictions, model_creators, partition_fns
 
 
 def vit(rng, loss_fn, num_classes, model_settings):

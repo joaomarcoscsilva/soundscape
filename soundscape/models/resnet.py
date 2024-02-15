@@ -5,7 +5,7 @@ import jax_resnet
 from flax import linen as nn
 from jax import numpy as jnp
 
-from ..dataset.dataloading import Batch
+from ..types import Batch
 from .base_model import Model, ModelState, Predictions, model_creators, partition_fns
 
 
@@ -24,7 +24,7 @@ class AddLogitsModule(nn.Module):
         return self.logits(x)
 
 
-def get_last_layer_shape(variables):
+def _get_last_layer_shape(variables):
     num_layer_groups = len(variables["params"].keys())
     last_layer_group = variables["params"][f"layers_{num_layer_groups}"]
     num_layer_blocks = len(last_layer_group.keys())
@@ -34,7 +34,7 @@ def get_last_layer_shape(variables):
 
 
 def _classifier_dummy_input(variables):
-    classifier_input_shape = get_last_layer_shape(variables)
+    classifier_input_shape = _get_last_layer_shape(variables)
     return jnp.zeros((1, classifier_input_shape[-1]))
 
 

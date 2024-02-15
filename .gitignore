@@ -7,3 +7,6 @@ data
 /models
 **/__pycache__
 *.pyc
+old/
+*.egg-info
+.ipynb_checkpoints
