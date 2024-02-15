@@ -4,8 +4,7 @@ import jax
 import optax
 from jax import numpy as jnp
 
-from soundscape.dataset.dataloading import Batch
-from soundscape.models.base_model import Predictions
+from .types import Batch, Predictions
 
 MetricFn = Callable[[Batch, Predictions], dict]
 
@@ -38,28 +37,28 @@ def weighted(metric_fn: MetricFn, weights=jnp.ones(1)) -> MetricFn:
 
 
 def logits(out_key, logits_key="logits") -> MetricFn:
-    def _logits(batch: Batch, outputs: Predictions) -> jax.Array:
+    def _logits(batch: Batch, outputs: Predictions) -> dict:
         return {out_key: outputs[logits_key]}
 
     return _logits
 
 
 def preds(out_key, logits_key="logits") -> MetricFn:
-    def _preds(batch: Batch, outputs: Predictions) -> jax.Array:
+    def _preds(batch: Batch, outputs: Predictions) -> dict:
         return {out_key: jnp.argmax(outputs[logits_key], axis=-1)}
 
     return _preds
 
 
 def probs(out_key, logits_key="logits") -> MetricFn:
-    def _probs(batch: Batch, outputs: Predictions) -> jax.Array:
+    def _probs(batch: Batch, outputs: Predictions) -> dict:
         return {out_key: jax.nn.softmax(outputs[logits_key])}
 
     return _probs
 
 
 def crossentropy(out_key, logits_key="logits") -> MetricFn:
-    def _crossentropy(batch: Batch, outputs: Predictions) -> jax.Array:
+    def _crossentropy(batch: Batch, outputs: Predictions) -> dict:
         ce = optax.softmax_cross_entropy(outputs[logits_key], batch["label_probs"])
         return {out_key: ce}
 
@@ -67,7 +66,7 @@ def crossentropy(out_key, logits_key="logits") -> MetricFn:
 
 
 def brier(out_key, logits_key="logits") -> MetricFn:
-    def _brier(batch: Batch, outputs: Predictions) -> jax.Array:
+    def _brier(batch: Batch, outputs: Predictions) -> dict:
         pred_probs = jax.nn.softmax(outputs[logits_key])
         return {out_key: jnp.sum((pred_probs - batch["label_probs"]) ** 2, axis=-1)}
 
@@ -75,7 +74,24 @@ def brier(out_key, logits_key="logits") -> MetricFn:
 
 
 def accuracy(out_key, logits_key="logits") -> MetricFn:
-    def _accuracy(batch: Batch, outputs: Predictions) -> jax.Array:
+    def _accuracy(batch: Batch, outputs: Predictions) -> dict:
         return {out_key: outputs[logits_key].argmax(-1) == batch["labels"]}
 
     return _accuracy
+
+
+def get_metrics_function(weights):
+
+    return compose(
+        [
+            weighted(logits("logits_w"), weights),
+            preds("preds"),
+            preds("preds_w", "logits_w"),
+            accuracy("acc"),
+            accuracy("acc_w", "logits_w"),
+            weighted(accuracy("bal_acc"), weights),
+            weighted(accuracy("bal_acc_w"), weights),
+            crossentropy("ce_loss"),
+            brier("brier"),
+        ]
+    )
