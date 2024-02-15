@@ -23,15 +23,19 @@ class Model:
         loss_fn: Callable[[Batch, Predictions], dict],
     ):
 
-        self.__call__ = predict_fn
+        self.call_fn = jax.jit(predict_fn, static_argnums=2)
 
         def _predict_with_loss(batch, params, model_state, is_training):
             model_state = model_state._replace(params=params)
             outputs, model_state = self(batch, model_state, is_training)
-            loss = loss_fn(batch, outputs)["loss"]
+            loss = loss_fn(batch, outputs)["loss"].mean()
             return loss, (outputs, model_state)
 
-        self._grad_fn = jax.value_and_grad(_predict_with_loss, has_aux=True, argnums=1)
+        grad_fn = jax.value_and_grad(_predict_with_loss, has_aux=True, argnums=1)
+        self._grad_fn = jax.jit(grad_fn, static_argnums=(3,), donate_argnums=(1, 2))
+
+    def __call__(self, *args, **kwds):
+        return self.call_fn(*args, **kwds)
 
     def value_and_grad(
         self,

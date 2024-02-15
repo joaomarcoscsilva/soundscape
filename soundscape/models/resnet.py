@@ -1,3 +1,5 @@
+from functools import partial
+
 import flax
 import haiku as hk
 import jax
@@ -79,13 +81,12 @@ def resnet(rng, loss_fn, num_classes, model_settings):
 
     # Partition the parameters into trainable and fixed
     params, fixed_params = hk.data_structures.partition(
-        partition_fns[model_settings.trainable_weights], params
+        partition_fns[model_settings.trainable_weights], variables["params"]
     )
 
-    @jax.jit
     def call_resnet(batch: Batch, model_state: ModelState, is_training: bool = True):
         params = hk.data_structures.merge(model_state.params, model_state.fixed_params)
-        inputs = _normalize_inputs(batch.inputs)
+        inputs = _normalize_inputs(batch["inputs"])
 
         logits, variables = ResNet.apply(
             {"params": params, "batch_stats": model_state.state},
@@ -96,10 +97,12 @@ def resnet(rng, loss_fn, num_classes, model_settings):
         if is_training:
             model_state = model_state._replace(state=variables["batch_stats"])
 
-        return Predictions(logits), model_state
+        return Predictions(logits=logits), model_state
 
     model = Model(call_resnet, loss_fn)
-    model_state = ModelState(params, fixed_params, variables["batch_stats"], None)
+    model_state = ModelState(
+        params, fixed_params, variables["batch_stats"].unfreeze(), None
+    )
 
     return model, model_state
 

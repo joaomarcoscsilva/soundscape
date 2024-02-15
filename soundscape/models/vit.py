@@ -32,12 +32,11 @@ def vit(rng, loss_fn, num_classes, model_settings):
         partition_fns[model_settings.trainable_weights], params
     )
 
-    @jax.jit
     def call_vit(batch: Batch, model_state: ModelState, is_training: bool = True):
         params = hk.data_structures.merge(model_state.params, model_state.fixed_params)
         inputs = batch.inputs.transpose((0, 3, 1, 2))
         logits = ViT(inputs, params=params)
-        return Predictions(logits), model_state
+        return Predictions(logits=logits), model_state
 
     model = Model(call_vit, loss_fn)
     model_state = ModelState(params, fixed_params, None, None)

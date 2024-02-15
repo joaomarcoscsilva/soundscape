@@ -107,6 +107,8 @@ def assert_dl_len(dl, sizes):
         + jnp.ceil(sizes[2] / dl.batch_size)
     )
 
+    assert dl.get_steps_per_epoch() == sizes[0] // dl.batch_size
+
 
 @pytest.mark.parametrize("num_classes", [13, 13, 2])
 def test_leec_sizes(num_classes):

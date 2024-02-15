@@ -163,11 +163,11 @@ def _preprocess_beta_params(
     Convert beta_params to a list if it is a float.
     """
 
-    if beta_params is None or jnp.all(beta_params <= 0):
-        return None
-
     if type(beta_params) is not list:
         beta_params = [beta_params, beta_params]
+
+    if None in beta_params:
+        return None
 
     return beta_params
 

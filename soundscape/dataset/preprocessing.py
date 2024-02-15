@@ -103,20 +103,19 @@ def preprocess(batch, training: bool, *, dataloader, augs_config):
     Preprocess a batch of training data.
     """
 
-    if not training:
-        crop_type = "center"
+    crop_type = augs_config.crop_type if training else "center"
 
-    batch = data_utils.prepare_image(batch)
+    batch = data_utils.prepare_images(batch)
     batch = data_utils.one_hot_encode(batch, dataloader.num_classes)
 
     batch = augment.crop_inputs(
         batch, crop_type, dataloader.dataset.sample_length, augs_config.cropped_length
     )
 
-    batch = data_utils.downsample_image(batch)
+    batch = data_utils.downsample_images(batch)
 
     if training:
-        batch = augment.cutmix(augs_config.cutmix_alpha)(batch)
-        batch = augment.mixup(augs_config.mixup_alpha)(batch)
+        batch = augment.cutmix(batch, augs_config.cutmix_alpha)
+        batch = augment.mixup(batch, augs_config.mixup_alpha)
 
     return batch

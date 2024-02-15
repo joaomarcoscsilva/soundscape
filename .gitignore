@@ -10,3 +10,4 @@ data
 old/
 *.egg-info
 .ipynb_checkpoints
+outputs

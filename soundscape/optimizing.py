@@ -4,10 +4,12 @@ import jax
 import optax
 
 
-def get_optimizer(model_state, training_settings):
+def get_optimizer(model_state, training_settings, dataloader):
+    steps_per_epoch = dataloader.get_steps_per_epoch() * training_settings.epochs
+
     lr_schedule = optax.cosine_decay_schedule(
         init_value=10 ** (training_settings.log_learning_rate),
-        decay_steps=training_settings.steps_per_epoch * training_settings.epochs,
+        decay_steps=steps_per_epoch,
     )
 
     if training_settings.optim_name == "adamw":
@@ -57,6 +59,8 @@ def _apply_grads(optimizer, model_state, grads):
 
 @partial(jax.jit, static_argnames=["model", "optimizer"])
 def update(batch, model_state, model, optimizer):
+    outputs, model_state = model(batch, model_state, is_training=True)
+
     outputs, model_state, grads = model.value_and_grad(
         batch, model_state, is_training=True
     )

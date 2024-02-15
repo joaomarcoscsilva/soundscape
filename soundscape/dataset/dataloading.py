@@ -111,7 +111,8 @@ class DataLoader:
         for batch in ds:
             rng, _rng = random.split(rng)
             _rngs = random.split(_rng, self.batch_size)
-            yield Batch(tf2jax(batch) | {"rng": _rng, "rngs": _rngs})
+            batch = {k: v for k, v in batch.items() if k[0] != "_"}
+            yield (Batch(tf2jax(batch) | {"rng": _rng, "rngs": _rngs}))
 
     def prior_weights(self):
         return 1 / (self.prior * self.num_classes)
@@ -182,7 +183,8 @@ class DataLoader:
             ds = ds.cache()
 
         if shuffle_every_epoch:
-            ds = ds.shuffle(10000, seed=random.randint(rng, (1,), 0, 2**16)[0])
+            ds = ds.shuffle(100, seed=random.randint(rng, (1,), 0, 2**16)[0])
+            # ds = ds.shuffle(10000, seed=random.randint(rng, (1,), 0, 2**16)[0])
 
         ds = ds.batch(self.batch_size, drop_remainder=drop_remainder)
 
@@ -193,6 +195,9 @@ class DataLoader:
         for dataloader in self._dataloaders.values():
             total += len(dataloader)
         return total
+
+    def get_steps_per_epoch(self, split: str = "train"):
+        return len(self._dataloaders[split])
 
 
 def get_dataloader(rng, dataloader_settings, **kwargs):

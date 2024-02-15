@@ -75,19 +75,20 @@ def test_pickle():
 
 
 def test_pbar():
-    logger = log.Logger(["a", "b"], pbar_len=3, pbar_keys=["a"])
+    logger = log.Logger(["a", "b"], pbar_len=4, pbar_keys=["a"])
     logger.restart()
 
-    logger.update({"a": np.array([1.0]), "b": np.array([2])})
+    logger.update({"b": np.array([2])})
+    logger.update({"a": np.array([1.0])})
     logger.update({"a": np.array([3.0]), "b": np.array([4])})
 
-    assert logger.pbar.total == 3
-    assert logger.pbar.n == 2
+    assert logger.pbar.total == 4
+    assert logger.pbar.n == 3
     assert logger.pbar.desc == "a 2.0000: "
 
     logger.update({"a": np.array([5.0]), "b": np.array([6])})
 
-    assert logger.pbar.n == 3
+    assert logger.pbar.n == 4
     assert logger.pbar.desc == "a 3.0000: "
 
 
@@ -105,6 +106,26 @@ def test_stack_logger():
         {
             "a": np.array([[1], [3], [5]]),
             "b": np.array([[2], [4], [6]]),
+        },
+    )
+
+
+def test_prefix():
+    logger = log.Logger(["a", "b"])
+    logger.restart()
+
+    logger.update({"a": np.array([1]), "b": np.array([2])})
+    logger.update({"a": np.array([3]), "b": np.array([4])})
+    logger.update({"a": np.array([5]), "b": np.array([6])}, prefix="test_")
+    results = logger.close()
+
+    assert_tree_equal(
+        results,
+        {
+            "a": np.array([1, 3]),
+            "b": np.array([2, 4]),
+            "test_a": np.array([5]),
+            "test_b": np.array([6]),
         },
     )
 

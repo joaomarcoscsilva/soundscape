@@ -26,13 +26,17 @@ class Logger:
     def _extract_keys(self, dictionaries, prefix):
         for dictionary in dictionaries:
             for key in self.keys & dictionary.keys():
+                if prefix + key not in self.logs:
+                    self.logs[prefix + key] = []
+
                 self.logs[prefix + key].append(dictionary[key])
 
     def _update_pbar(self, prefix):
         descs = []
 
-        for key in self.pbar_keys:
-            mean = mean_keep_dtype(jnp.concatenate(self.logs[key]))
+        merged = self.merge()
+        for key in merged.keys() & self.pbar_keys:
+            mean = mean_keep_dtype(merged[key])
             descs.append(f"{prefix+key} {format_digits(mean)}")
 
         self.pbar.set_description(" █ ".join(descs))

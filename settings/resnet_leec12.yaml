@@ -6,3 +6,9 @@ defaults:
 
 seed: 0
 num_epochs: 100
+
+optimizer:
+  epochs: 100
+
+dataloader:
+  batch_size: 2

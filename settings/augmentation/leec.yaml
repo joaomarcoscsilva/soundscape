@@ -1,3 +1,5 @@
+crop_type: center
 cropped_length: 3
+
 cutmix_alpha: 1
 mixup_alpha: 1
