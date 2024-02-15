@@ -1,80 +1,128 @@
+import pickle
+
+import jax
 import numpy as np
-import pytest
 
-from soundscape import composition, log
-
-
-def test_track():
-    @composition.Composable
-    def f(values):
-        a = values["a"]
-        b = values["b"]
-        c = a + b
-        d = a * b
-        return {**values, "c": c, "d": d}
-
-    fn = f | log.track(["a", "d"], prefix="pref_")
-
-    values = fn({"a": 1, "b": 2})
-    values = fn({**values, "a": 2, "b": 3})
-    values = fn({**values, "a": 3, "b": 4})
-
-    assert values == {
-        "a": 3,
-        "b": 4,
-        "c": 7,
-        "d": 12,
-        "_logs": [
-            {"pref_a": 1, "pref_d": 2},
-            {"pref_a": 2, "pref_d": 6},
-            {"pref_a": 3, "pref_d": 12},
-        ],
-    }
+from soundscape import log
 
 
-def test_count_steps():
-    @composition.Composable
-    def f(values):
-        return values
+def add_sample_values(logger):
+    return logger
 
-    fn = f | log.count_steps
 
-    values = fn({})
-    assert values == {"_step": 0}
-    values = fn(values)
-    assert values == {"_step": 1}
-    values = fn(values)
-    assert values == {"_step": 2}
+def assert_tree_equal(a, b):
+    flat_a, treedef_a = jax.tree_util.tree_flatten(a)
+    flat_b, treedef_b = jax.tree_util.tree_flatten(b)
+
+    assert treedef_a == treedef_b
+
+    for i in range(len(flat_a)):
+        assert np.all(flat_a[i] == flat_b[i])
+
+
+def test_simple_logger():
+    logger = log.Logger(["a", "b"])
+    logger.restart()
+
+    logger.update({"a": np.array([1]), "b": np.array([2])})
+    logger.update({"a": np.array([3]), "b": np.array([4])})
+    logger.update({"a": np.array([5]), "b": np.array([6])})
+    results = logger.close()
+
+    assert_tree_equal(
+        results,
+        {
+            "a": np.array([1, 3, 5]),
+            "b": np.array([2, 4, 6]),
+        },
+    )
+
+    # Assert that the logger can be reset
+    logger.restart()
+    assert logger.logs == {"a": [], "b": []}
+    assert logger.close() == {}
+
+
+def test_incremental_additions():
+    logger = log.Logger(["a", "b"])
+    logger.restart()
+
+    logger.update({"a": np.array([1]), "c": None})
+    assert_tree_equal(logger.merge(), {"a": np.array([1])})
+
+    logger.update({"a": np.array([2]), "b": np.array([3])})
+    assert_tree_equal(logger.merge(), {"a": np.array([1, 2]), "b": np.array([3])})
+
+    logger.update({"b": np.array([5])})
+    assert_tree_equal(logger.merge(), {"a": np.array([1, 2]), "b": np.array([3, 5])})
+
+
+def test_pickle():
+    logger = log.Logger(["a", "b"])
+    logger.restart()
+
+    logger.update({"a": np.array([1]), "b": np.array([2])})
+    logger.update({"a": np.array([3]), "b": np.array([4])})
+    logger.update({"a": np.array([5]), "b": np.array([6])})
+    results = logger.close()
+
+    logger.pickle("/tmp/test.pkl")
+
+    with open("/tmp/test.pkl", "rb") as f:
+        loaded = pickle.load(f)
+
+    assert_tree_equal(results, loaded)
+
+
+def test_pbar():
+    logger = log.Logger(["a", "b"], pbar_len=3, pbar_keys=["a"])
+    logger.restart()
+
+    logger.update({"a": np.array([1.0]), "b": np.array([2])})
+    logger.update({"a": np.array([3.0]), "b": np.array([4])})
+
+    assert logger.pbar.total == 3
+    assert logger.pbar.n == 2
+    assert logger.pbar.desc == "a 2.0000: "
+
+    logger.update({"a": np.array([5.0]), "b": np.array([6])})
+
+    assert logger.pbar.n == 3
+    assert logger.pbar.desc == "a 3.0000: "
+
+
+def test_stack_logger():
+    logger = log.Logger(["a", "b"], merge_fn="stack")
+    logger.restart()
+
+    logger.update({"a": np.array([1]), "b": np.array([2])})
+    logger.update({"a": np.array([3]), "b": np.array([4])})
+    logger.update({"a": np.array([5]), "b": np.array([6])})
+    results = logger.close()
+
+    assert_tree_equal(
+        results,
+        {
+            "a": np.array([[1], [3], [5]]),
+            "b": np.array([[2], [4], [6]]),
+        },
+    )
 
 
 def test_format_digits():
-    vals = [1, 12, 2.0, 2.01, 2.000000001, 123.0000001, 123.0123131]
-    expected = ["     1", "    12", "2.0000", "2.0100", "2.0000", "123.00", "123.01"]
+    vals = [1, 12, 2.0, 2.01, 2.000000001, 123.0000001, 123.0123131, np.float32("nan")]
+    expected = [
+        "     1",
+        "    12",
+        "2.0000",
+        "2.0100",
+        "2.0000",
+        "123.00",
+        "123.01",
+        "   nan",
+    ]
     formatted = [log.format_digits(np.array([val])[0], 6) for val in vals]
     assert formatted == expected
-
-
-def test_merge_logs():
-    logs = [
-        {"a": np.zeros((2, 3)), "b": np.ones((2, 3, 4))},
-        {"a": np.zeros((2, 3)), "b": np.ones((2, 3, 4))},
-        {"a": np.zeros((2, 3)), "b": np.ones((2, 3, 4))},
-        {"c": np.zeros((5, 3))},
-        {"c": np.zeros((5, 3))},
-    ]
-
-    concat_logs = log.merge(logs, "concat")
-    stack_logs = log.merge(logs, "stack")
-
-    assert (concat_logs["a"] == np.zeros((6, 3))).all()
-    assert (concat_logs["b"] == np.ones((6, 3, 4))).all()
-    assert (concat_logs["c"] == np.zeros((10, 3))).all()
-    assert (stack_logs["a"] == np.zeros((3, 2, 3))).all()
-    assert (stack_logs["b"] == np.ones((3, 2, 3, 4))).all()
-    assert (stack_logs["c"] == np.zeros((2, 5, 3))).all()
-
-    with pytest.raises(ValueError):
-        log.merge(logs, "unknown")
 
 
 def test_mean_keep_dtype():
@@ -89,21 +137,3 @@ def test_mean_keep_dtype():
     assert log.mean_keep_dtype(x_int32).dtype == np.int32
     assert log.mean_keep_dtype(x_int64).dtype == np.int64
     assert log.mean_keep_dtype(x_float32).dtype == np.float32
-
-
-def test_track_progress():
-    values = {
-        "_step": 8,
-        "_logs": [
-            {"a": np.array([1]), "b": np.array([2.0]), "c": np.array([3.0])},
-            {"a": np.array([1]), "b": np.array([3.0]), "c": np.array([4.0])},
-        ],
-        "a": 1.0,
-    }
-
-    fn = log.track_progress(["a", "c"], total=10)
-    values = fn(values)
-
-    assert "_tqdm" in values
-    assert values["_tqdm"].total == 10
-    assert values["_tqdm"].desc == "a      1 █ c 3.5000: "
