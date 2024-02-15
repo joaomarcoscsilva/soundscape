@@ -1,29 +1,18 @@
 import os
 from glob import glob
-from typing import TypedDict
 
+import hydra
 import jax
 import numpy as np
 import tensorflow as tf
 from jax import numpy as jnp
 from jax import random
-from numpy.typing import NDArray
 from tensorflow.python.ops.numpy_ops import np_config
 
+from ..types import Batch
 from .dataset import Dataset
 
 np_config.enable_numpy_behavior()
-
-
-class Batch(TypedDict, total=False):
-    inputs: jax.Array
-    labels: jax.Array
-    label_probs: jax.Array
-    rng: jax.Array
-    rngs: jax.Array
-
-    _files: NDArray
-    _ids: NDArray
 
 
 def tf2jax(batch):
@@ -59,6 +48,8 @@ class DataLoader:
         class_order: list[str],
         class_mapping: dict[str, str | None] | None = None,
         cache: bool = True,
+        include_test=False,
+        batch_size: int = 128,
     ):
         """
         Create a new dataset object, which stores dataloaders for all splits.
@@ -76,6 +67,8 @@ class DataLoader:
 
         self.class_mapping = class_mapping
         self.cache = cache
+        self.include_test = include_test
+        self.batch_size = batch_size
 
         self._dataloaders = {}
 
@@ -83,6 +76,9 @@ class DataLoader:
         rngs = random.split(rng, len(split_names))
 
         for rng, split in zip(rngs, split_names):
+            if split == "test" and not include_test:
+                continue
+
             rng, rng_metadata, rng_dataloader = random.split(rng, 3)
 
             split_metadata = self.load_split_metadata(
@@ -90,30 +86,35 @@ class DataLoader:
             )
 
             self._dataloaders[split] = self.get_split_dataloader(
-                rng_dataloader, split_metadata, shuffle_every_epoch=split == "train"
+                rng_dataloader,
+                split_metadata,
+                shuffle_every_epoch=split == "train",
+                drop_remainder=split == "train",
             )
+
+            if split == "train":
+                counts = jnp.bincount(
+                    split_metadata["labels"], minlength=len(class_order)
+                )
+                self.prior = counts / counts.sum()
 
         self.num_classes = len(class_order)
 
-    def iterate(
-        self,
-        rng: jax.Array,
-        split: str,
-        batch_size: int,
-        drop_remainder: bool = False,
-    ):
+    def iterate(self, rng: jax.Array, split: str):
         """
         Get an iterator over the dataset for a given split.
         """
 
         ds = self._dataloaders[split]
-        ds = ds.batch(batch_size, drop_remainder=drop_remainder)
         ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
 
         for batch in ds:
             rng, _rng = random.split(rng)
-            _rngs = random.split(_rng, batch_size)
+            _rngs = random.split(_rng, self.batch_size)
             yield Batch(tf2jax(batch) | {"rng": _rng, "rngs": _rngs})
+
+    def prior_weights(self):
+        return 1 / (self.prior * self.num_classes)
 
     def load_split_metadata(self, rng: jax.Array, split_dir: str):
         """
@@ -161,7 +162,11 @@ class DataLoader:
         }
 
     def get_split_dataloader(
-        self, rng: jax.Array, ds_dict: dict, shuffle_every_epoch: bool
+        self,
+        rng: jax.Array,
+        ds_dict: dict,
+        shuffle_every_epoch: bool,
+        drop_remainder: bool,
     ):
         """
         Get a tf.data.Dataset object for a split of the dataset.
@@ -179,4 +184,16 @@ class DataLoader:
         if shuffle_every_epoch:
             ds = ds.shuffle(10000, seed=random.randint(rng, (1,), 0, 2**16)[0])
 
+        ds = ds.batch(self.batch_size, drop_remainder=drop_remainder)
+
         return ds
+
+    def __len__(self):
+        total = 0
+        for dataloader in self._dataloaders.values():
+            total += len(dataloader)
+        return total
+
+
+def get_dataloader(rng, dataloader_settings, **kwargs):
+    return hydra.utils.instantiate(dataloader_settings, rng=rng, **kwargs)

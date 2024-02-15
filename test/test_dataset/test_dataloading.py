@@ -14,13 +14,30 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 TESTING_BATCHES = 5
 
+LEEC_SIZES = {
+    "leec13": (9990, 3323, 3323),
+    "leec12": (2293, 758, 758),
+    "leec2": (2293, 758, 758),
+}
 
-def get_dataloader(name):
+
+def get_dataloader(name, include_test=True, **kwargs):
     rng = random.PRNGKey(0)
     with hydra.initialize("../../settings", version_base=None):
         settings = hydra.compose(config_name=f"dataloader/{name}")
-        dataloader_partial = hydra.utils.instantiate(settings.dataloader)
-    return dataloader_partial(rng)
+
+    settings.dataloader.batch_size = 32
+    return dataloading.get_dataloader(
+        rng, settings.dataloader, include_test=include_test, **kwargs
+    )
+
+
+def assert_no_leaks(*metadata_sets):
+    file_sets = [set(metadata["_files"]) for metadata in metadata_sets]
+    id_sets = [set(metadata["_ids"]) for metadata in metadata_sets]
+
+    assert sum(len(s) for s in file_sets) == len(set.union(*file_sets))
+    assert sum(len(s) for s in id_sets) == len(set.union(*id_sets))
 
 
 def get_splits_metadata(dataloader):
@@ -29,6 +46,8 @@ def get_splits_metadata(dataloader):
     train_metadata = dataloader.load_split_metadata(rng, "data/leec/train")
     val_metadata = dataloader.load_split_metadata(rng, "data/leec/val")
     test_metadata = dataloader.load_split_metadata(rng, "data/leec/test")
+
+    assert_no_leaks(train_metadata, val_metadata, test_metadata)
 
     return train_metadata, val_metadata, test_metadata
 
@@ -81,22 +100,29 @@ def assert_metadata_sizes(dataloader, num_classes, train_size, val_size, test_si
     assert_roughly_balanced(train_metadata, val_metadata, test_metadata)
 
 
-def test_leec13_sizes():
-    dl = get_dataloader("leec13")
-    assert_metadata_sizes(dl, 13, 9990, 3323, 3323)
-    assert dl.num_classes == 13
+def assert_dl_len(dl, sizes):
+    assert len(dl) == (
+        sizes[0] // dl.batch_size
+        + jnp.ceil(sizes[1] / dl.batch_size)
+        + jnp.ceil(sizes[2] / dl.batch_size)
+    )
 
 
-def test_leec12_sizes():
-    dl = get_dataloader("leec12")
-    assert_metadata_sizes(dl, 12, 2293, 758, 758)
-    assert dl.num_classes == 12
+@pytest.mark.parametrize("num_classes", [13, 13, 2])
+def test_leec_sizes(num_classes):
+    dl_name = "leec" + str(num_classes)
+    dl = get_dataloader(dl_name)
+    assert_metadata_sizes(dl, num_classes, *LEEC_SIZES[dl_name])
+    assert_dl_len(dl, LEEC_SIZES[dl_name])
 
 
-def test_leec2_sizes():
-    dl = get_dataloader("leec2")
-    assert_metadata_sizes(dl, 2, 2293, 758, 758)
-    assert dl.num_classes == 2
+@pytest.mark.parametrize("num_classes", [13, 13, 2])
+def test_no_test_set(num_classes):
+    dl_name = "leec" + str(num_classes)
+    dl = get_dataloader(dl_name, include_test=False)
+
+    assert set(dl._dataloaders.keys()) == {"train", "val"}
+    assert_dl_len(dl, LEEC_SIZES[dl_name][:2] + (0,))
 
 
 @pytest.mark.parametrize("dl_name", ["leec13", "leec12", "leec2"])
@@ -105,7 +131,7 @@ def test_dataloader_shapes(dl_name):
     dataloader = get_dataloader(dl_name)
 
     batches = []
-    for i, batch in enumerate(dataloader.iterate(rng, "val", 32)):
+    for i, batch in enumerate(dataloader.iterate(rng, "val")):
         batches.append(batch)
 
         assert batch["inputs"].shape == (32, 256, 423, 1)
@@ -131,16 +157,40 @@ def test_reproducible_dataloaders(dl_name):
     batches = []
 
     dataloader = get_dataloader(dl_name)
-    for i, batch in enumerate(dataloader.iterate(rng1, "val", 32)):
+    for i, batch in enumerate(dataloader.iterate(rng1, "val")):
         batches.append(batch)
         if i == 10:
             break
 
     dataloader = get_dataloader(dl_name)
-    for i, batch in enumerate(dataloader.iterate(rng1, "val", 32)):
+    for i, batch in enumerate(dataloader.iterate(rng1, "val")):
         assert_equal_batch(batch, batches[i])
         if i == 10:
             break
+
+
+def test_prior_weights_leec13():
+    dl = get_dataloader("leec13")
+    weights = dl.prior_weights()
+
+    assert weights.min() < 1
+    assert weights.max() > 1
+    assert weights.max() - weights.min() > 1
+
+    # Check that the most common class ("other") has the lowest weight
+    assert weights.argmin() == 0
+
+
+def test_prior_weights_leec12():
+    dl = get_dataloader("leec12")
+    weights = dl.prior_weights()
+
+    assert weights.min() < 1
+    assert weights.max() > 1
+    assert weights.max() - weights.min() > 1
+
+    # Check that all frogs have more weight than any bird
+    assert weights[6:].min() > weights[:6].max()
 
 
 def test_tf2jax():

@@ -1,26 +1,26 @@
 import numpy as np
 
-from soundscape.dataset import preprocess
+from soundscape.dataset import preprocessing
 
 SR = 22050
 
 
 def test_convert_to_sample_rate():
     audio = np.random.rand(SR * 5)
-    new_audio = preprocess.convert_to_sample_rate(audio, SR, SR * 2)
+    new_audio = preprocessing.convert_to_sample_rate(audio, SR, SR * 2)
     assert new_audio.shape == (SR * 5 * 2,)
 
 
 def test_crop_segment():
     audio = np.random.rand(SR * 5)
-    new_audio = preprocess.crop_segment(audio, 1, 2, SR)
+    new_audio = preprocessing.crop_segment(audio, 1, 2, SR)
     assert new_audio.shape == (SR,)
     assert np.allclose(new_audio, audio[SR : SR * 2])
 
 
 def test_pad_segment():
     audio = np.random.rand(SR * 2)
-    new_audio, start, end = preprocess.pad_segment(audio, 1, 2, SR, 5)
+    new_audio, start, end = preprocessing.pad_segment(audio, 1, 2, SR, 5)
     assert new_audio.shape == (SR * 7,)
     assert start == 3.5
     assert end == 4.5
@@ -28,7 +28,7 @@ def test_pad_segment():
 
 def test_crop_centered_segment():
     audio = np.random.rand(SR * 2)
-    new_audio = preprocess.crop_centered_segment(audio, 1, 2, SR, 5)
+    new_audio = preprocessing.crop_centered_segment(audio, 1, 2, SR, 5)
     assert new_audio.shape == (SR * 5,)
     assert np.allclose(new_audio[SR * 2 : SR * 3], audio[SR : SR * 2])
 
@@ -50,7 +50,7 @@ def test_generate_melspectrogram():
     }
 
     audio = np.random.rand(SR * 2)
-    spectrogram = preprocess.generate_melspectrogram(audio, SR, spectrogram_kwargs)
+    spectrogram = preprocessing.generate_melspectrogram(audio, SR, spectrogram_kwargs)
 
     assert spectrogram.shape[0] == spectrogram_kwargs["n_mels"]
     assert spectrogram.shape[1] < 1000
@@ -58,7 +58,7 @@ def test_generate_melspectrogram():
 
 def test_process_melspectrogram():
     spectrogram = np.random.rand(256, 1000)
-    new_spectrogram = preprocess.process_melspectrogram(spectrogram, 16, [-80, 0])
+    new_spectrogram = preprocessing.process_melspectrogram(spectrogram, 16, [-80, 0])
 
     assert spectrogram.shape == new_spectrogram.shape
     assert new_spectrogram.dtype == np.uint16
