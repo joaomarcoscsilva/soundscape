@@ -1,0 +1,5 @@
+model_name: vit
+initialization: imagenet 
+trainable_weights: all
+
+convert_tf_params: true

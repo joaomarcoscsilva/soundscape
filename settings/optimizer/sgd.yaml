@@ -1,0 +1,5 @@
+
+optim_name: sgd
+log_learning_rate: -1
+sub_log_momentum: -1
+log_weight_decay: -1

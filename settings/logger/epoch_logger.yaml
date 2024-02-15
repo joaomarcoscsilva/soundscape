@@ -1,0 +1,26 @@
+_target_: soundscape.log.Logger
+
+keys:
+  - epoch
+  - ce_loss
+  - val_ce_loss
+  - bal_acc
+  - val_bal_acc
+  - bal_acc_w
+  - val_bal_acc_w
+  - brier
+  - val_brier
+  - logits
+  - val_logits
+  - labels
+  - val_labels
+
+pbar_keys:
+  - epoch
+  - ce_loss
+  - val_ce_loss
+  - bal_acc
+  - val_bal_acc
+  - val_bal_acc_w
+
+merge_fn: concat

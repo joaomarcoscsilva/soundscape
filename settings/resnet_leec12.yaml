@@ -1,0 +1,8 @@
+defaults:
+  - dataloader: leec12
+  - model: resnet50
+  - optimizer: adamw
+  - augmentation: leec
+
+seed: 0
+num_epochs: 100

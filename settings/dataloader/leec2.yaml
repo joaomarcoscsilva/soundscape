@@ -1,0 +1,21 @@
+defaults:
+  - leec13
+
+class_order: ["bird", "frog"]
+
+class_mapping:
+  other: null
+
+  basi_culi: bird
+  myio_leuc: bird
+  vire_chiv: bird
+  cycl_guja: bird
+  pita_sulp: bird
+  zono_cape: bird
+
+  dend_minu: frog
+  apla_leuc: frog
+  isch_guen: frog
+  phys_cuvi: frog
+  boan_albo: frog
+  aden_marm: frog

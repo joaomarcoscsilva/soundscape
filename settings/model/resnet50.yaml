@@ -1,0 +1,5 @@
+model_name: resnet
+initialization: imagenet
+trainable_weights: all
+
+num_layers: 50

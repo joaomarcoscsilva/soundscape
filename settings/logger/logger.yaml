@@ -1,0 +1,11 @@
+_target_: soundscape.log.Logger
+
+keys:
+  - logits
+  - val_logits
+  - test_logits
+  - labels
+  - val_labels
+  - test_labels
+
+merge_fn: stack

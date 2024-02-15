@@ -1,0 +1,12 @@
+_target_: soundscape.dataset.dataloading.DataLoader
+
+defaults: 
+  - dataset: ../../dataset/leec
+
+class_order: [ "other", "basi_culi", "myio_leuc", "vire_chiv", "cycl_guja", "pita_sulp", "zono_cape", "dend_minu", "apla_leuc", "isch_guen", "phys_cuvi", "boan_albo", "aden_marm"]
+class_mapping: null
+
+cache: true
+include_test: false
+
+batch_size: 128
