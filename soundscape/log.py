@@ -1,4 +1,4 @@
-import pickle
+import json
 
 from jax import numpy as jnp
 from tqdm import tqdm
@@ -53,9 +53,10 @@ class Logger:
         self.pbar.close()
         return self.merge()
 
-    def pickle(self, path):
-        with open(path, "wb") as f:
-            pickle.dump(self.merge(), f)
+    def serialized(self):
+        merged = self.merge()
+        raw = {k: v.round(6).tolist() for k, v in merged.items()}
+        return json.dumps(raw, sort_keys=True)
 
 
 def format_digits(val, digits=6):

@@ -1,5 +1,3 @@
-import pickle
-
 import jax
 import numpy as np
 
@@ -57,21 +55,16 @@ def test_incremental_additions():
     assert_tree_equal(logger.merge(), {"a": np.array([1, 2]), "b": np.array([3, 5])})
 
 
-def test_pickle():
+def test_serialize():
     logger = log.Logger(["a", "b"])
     logger.restart()
 
     logger.update({"a": np.array([1]), "b": np.array([2])})
     logger.update({"a": np.array([3]), "b": np.array([4])})
     logger.update({"a": np.array([5]), "b": np.array([6])})
-    results = logger.close()
+    serialized = logger.serialized()
 
-    logger.pickle("/tmp/test.pkl")
-
-    with open("/tmp/test.pkl", "rb") as f:
-        loaded = pickle.load(f)
-
-    assert_tree_equal(results, loaded)
+    assert serialized == '{"a": [1, 3, 5], "b": [2, 4, 6]}'
 
 
 def test_pbar():

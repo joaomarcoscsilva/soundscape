@@ -3,6 +3,8 @@ defaults:
   - model: resnet50
   - optimizer: adamw
   - augmentation: leec
+  - logger: logger
+  - epoch_logger: logger.epoch_logger
 
 seed: 0
 num_epochs: 100
