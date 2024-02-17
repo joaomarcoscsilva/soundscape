@@ -45,6 +45,7 @@ def get_optimizer(model_state, training_settings, dataloader):
     return optimizer, model_state._replace(optim_state=optim_state)
 
 
+@partial(jax.jit, static_argnames=["optimizer"])
 def _apply_grads(optimizer, model_state, grads):
     updates, optim_state = optimizer.update(
         grads,
@@ -57,7 +58,6 @@ def _apply_grads(optimizer, model_state, grads):
     return model_state._replace(params=params, optim_state=optim_state)
 
 
-@partial(jax.jit, static_argnames=["model", "optimizer"])
 def update(batch, model_state, model, optimizer):
     outputs, model_state = model(batch, model_state, is_training=True)
 

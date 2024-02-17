@@ -44,5 +44,4 @@ def vit(rng, loss_fn, num_classes, model_settings):
     return model, model_state
 
 
-if "vit" not in model_creators:
-    model_creators["vit"] = vit
+model_creators["vit"] = vit

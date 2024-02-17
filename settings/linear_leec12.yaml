@@ -1,6 +1,6 @@
 defaults:
   - dataloader: leec12
-  - model: resnet50
+  - model: linear
   - optimizer: adamw
   - augmentation: leec
   - logger: logger

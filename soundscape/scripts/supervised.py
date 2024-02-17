@@ -62,7 +62,7 @@ def train(rng, model_state, env):
         env.logger.update(logs)
         if env.logger.early_stop():
             break
-    return env.logger
+    return env.logger.serialized()
 
 
 def instantiate(settings):
@@ -107,16 +107,13 @@ def instantiate(settings):
 
 
 @hydra.main(
-    config_path="../settings", config_name="resnet_leec12.yaml", version_base=None
+    config_path="../../settings", config_name="linear_leec12.yaml", version_base=None
 )
 def main(settings):
     rng, model_state, env = instantiate(settings)
 
     cpu_only = jax.devices()[0].platform == "cpu"
-    jit_context = jax.disable_jit() if cpu_only else contextlib.nullcontext()
-
-    with jit_context:
-        train(rng, model_state, env)
+    train(rng, model_state, env)
 
 
 if __name__ == "__main__":

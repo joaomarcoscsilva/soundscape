@@ -7,8 +7,8 @@ import jax_resnet
 from flax import linen as nn
 from jax import numpy as jnp
 
-from ..types import Batch
-from .base_model import Model, ModelState, Predictions, model_creators, partition_fns
+from ..types import Batch, ModelState
+from .base_model import Model, Predictions, model_creators, partition_fns
 
 
 class AddLogitsModule(nn.Module):
@@ -107,5 +107,4 @@ def resnet(rng, loss_fn, num_classes, model_settings):
     return model, model_state
 
 
-if "resnet" not in model_creators:
-    model_creators["resnet"] = resnet
+model_creators["resnet"] = resnet

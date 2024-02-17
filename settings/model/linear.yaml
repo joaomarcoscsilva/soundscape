@@ -1,0 +1,2 @@
+model_name: linear
+input_dim: 150528 # 224 * 224 * 3
