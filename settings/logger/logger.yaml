@@ -1,6 +1,21 @@
-_target_: soundscape.log.Logger
+_target_: soundscape.log.TrainingLogger
 
 keys:
+  - epoch
+  - ce_loss
+  - val_ce_loss
+  - bal_acc
+  - val_bal_acc
+  - bal_acc_w
+  - val_bal_acc_w
+  - brier
+  - val_brier
+  - logits
+  - val_logits
+  - labels
+  - val_labels
+
+saved_keys:
   - logits
   - val_logits
   - test_logits
@@ -9,3 +24,9 @@ keys:
   - test_labels
 
 merge_fn: stack
+
+nan_metrics:
+  - ce_loss
+  - val_ce_loss
+  - logits
+  - val_logits 

@@ -56,12 +56,12 @@ def test_incremental_additions():
 
 
 def test_serialize():
-    logger = log.Logger(["a", "b"])
+    logger = log.Logger(["a", "b", "c"], saved_keys=["a", "b"])
     logger.restart()
 
-    logger.update({"a": np.array([1]), "b": np.array([2])})
-    logger.update({"a": np.array([3]), "b": np.array([4])})
-    logger.update({"a": np.array([5]), "b": np.array([6])})
+    logger.update({"a": np.array([1]), "b": np.array([2]), "c": np.array([3])})
+    logger.update({"a": np.array([3]), "b": np.array([4]), "c": np.array([5])})
+    logger.update({"a": np.array([5]), "b": np.array([6]), "c": np.array([7])})
     serialized = logger.serialized()
 
     assert serialized == '{"a": [1, 3, 5], "b": [2, 4, 6]}'
@@ -155,6 +155,42 @@ def test_scalar():
             "b": np.array([2, 4, 6]),
         },
     )
+
+
+def test_nan_early_stopping():
+    logger = log.TrainingLogger(["a", "b"], nan_metrics=["a"])
+    logger.restart()
+
+    logger.update({"a": np.array([1]), "b": np.array([2])})
+    assert not logger.early_stop()
+
+    logger.update({"a": np.array([1]), "b": np.array([np.nan])})
+    assert not logger.early_stop()
+
+    logger.update({"a": np.array([np.nan]), "b": np.array([np.nan])})
+    assert logger.early_stop()
+
+
+def test_patience_early_stopping():
+    logger = log.TrainingLogger(
+        ["a"], optimizing_metric="a", patience=2, optimizing_mode="min"
+    )
+    logger.restart()
+
+    logger.update({"a": np.array([3])})
+    assert not logger.early_stop()
+
+    logger.update({"a": np.array([2])})
+    assert not logger.early_stop()
+
+    logger.update({"a": np.array([1])})
+    assert not logger.early_stop()
+
+    logger.update({"a": np.array([1])})
+    assert not logger.early_stop()
+
+    logger.update({"a": np.array([1])})
+    assert logger.early_stop()
 
 
 def test_mean_keep_dtype():

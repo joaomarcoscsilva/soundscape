@@ -60,6 +60,9 @@ def train(rng, model_state, env):
     for epoch_i in range(env.num_epochs):
         logs, model_state = train_for_epoch(rng, model_state, epoch_i, env)
         env.logger.update(logs)
+        if env.logger.early_stop():
+            break
+    return env.logger
 
 
 def instantiate(settings):
