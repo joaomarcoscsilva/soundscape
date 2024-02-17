@@ -139,6 +139,24 @@ def test_format_digits():
     assert formatted == expected
 
 
+def test_scalar():
+    logger = log.Logger(["a", "b"])
+    logger.restart()
+
+    logger.update({"a": 1, "b": np.array([2])})
+    logger.update({"a": 3, "b": np.array([4])})
+    logger.update({"a": 5, "b": np.array([6])})
+    results = logger.close()
+
+    assert_tree_equal(
+        results,
+        {
+            "a": np.array([1, 3, 5]),
+            "b": np.array([2, 4, 6]),
+        },
+    )
+
+
 def test_mean_keep_dtype():
     x_int32 = np.array([1, 2, 3, 4], dtype=np.int32)
     x_int64 = np.array([1, 2, 3, 4], dtype=np.int64)

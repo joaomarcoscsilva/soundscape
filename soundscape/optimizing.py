@@ -59,7 +59,6 @@ def _apply_grads(optimizer, model_state, grads):
 
 @partial(jax.jit, static_argnames=["model", "optimizer"])
 def update(batch, model_state, model, optimizer):
-    print("Compiling update function...")
     outputs, model_state = model(batch, model_state, is_training=True)
 
     outputs, model_state, grads = model.value_and_grad(

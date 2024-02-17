@@ -1,5 +1,6 @@
 import json
 
+import hydra
 from jax import numpy as jnp
 from tqdm import tqdm
 
@@ -11,16 +12,16 @@ class Logger:
         pbar_len=0,
         pbar_keys=[],
         merge_fn="concat",
-        pbar_position=0,
+        pbar_level=0,
     ):
         self.keys = set(keys)
         self.pbar_keys = pbar_keys
         self.merge_fn = jnp.concatenate if "concat" in merge_fn.lower() else jnp.stack
         self.pbar_len = pbar_len
-        self.pbar_position = pbar_position
+        self.pbar_level = pbar_level
 
     def restart(self):
-        self.pbar = tqdm(total=self.pbar_len, ncols=160, position=self.pbar_position)
+        self.pbar = tqdm(total=self.pbar_len, ncols=160, position=self.pbar_level)
         self.logs: dict[str, list] = {k: [] for k in self.keys}
 
     def _extract_keys(self, dictionaries, prefix):
@@ -29,7 +30,11 @@ class Logger:
                 if prefix + key not in self.logs:
                     self.logs[prefix + key] = []
 
-                self.logs[prefix + key].append(dictionary[key])
+                val = dictionary[key]
+                if jnp.ndim(val) == 0:
+                    val = jnp.array([val])
+
+                self.logs[prefix + key].append(val)
 
     def _update_pbar(self, prefix):
         descs = []
@@ -57,6 +62,10 @@ class Logger:
         merged = self.merge()
         raw = {k: v.round(6).tolist() for k, v in merged.items()}
         return json.dumps(raw, sort_keys=True)
+
+
+def get_logger(settings, *args, **kwargs):
+    return hydra.utils.instantiate(settings, *args, **kwargs)
 
 
 def format_digits(val, digits=6):

@@ -187,6 +187,7 @@ class DataLoader:
             # ds = ds.shuffle(10000, seed=random.randint(rng, (1,), 0, 2**16)[0])
 
         ds = ds.batch(self.batch_size, drop_remainder=drop_remainder)
+        ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
 
         return ds
 
