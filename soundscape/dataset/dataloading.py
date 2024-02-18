@@ -201,5 +201,5 @@ class DataLoader:
         return len(self._dataloaders[split])
 
 
-def get_dataloader(rng, dataloader_settings, **kwargs):
+def get_dataloader(rng, dataloader_settings, **kwargs) -> DataLoader:
     return hydra.utils.instantiate(dataloader_settings, rng=rng, **kwargs)

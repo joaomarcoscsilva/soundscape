@@ -4,29 +4,29 @@ import jax
 import optax
 
 
-def get_optimizer(model_state, training_settings, dataloader):
-    steps_per_epoch = dataloader.get_steps_per_epoch() * training_settings.epochs
+def get_optimizer(model_state, optimizer_settings, steps_per_epoch):
+    total_steps = steps_per_epoch * optimizer_settings.epochs
 
     lr_schedule = optax.cosine_decay_schedule(
-        init_value=10 ** (training_settings.log_learning_rate),
-        decay_steps=steps_per_epoch,
+        init_value=10 ** (optimizer_settings.log_learning_rate),
+        decay_steps=total_steps,
     )
 
-    if training_settings.optim_name == "adamw":
+    if optimizer_settings.optim_name == "adamw":
         base_optim_transform = optax.scale_by_adam()
-    elif training_settings.optim_name == "sgd":
-        if training_settings.sub_log_momentum is not None:
+    elif optimizer_settings.optim_name == "sgd":
+        if optimizer_settings.sub_log_momentum is not None:
             base_optim_transform = optax.trace(
-                decay=1 - 10**training_settings.sub_log_momentum
+                decay=1 - 10**optimizer_settings.sub_log_momentum
             )
         else:
             base_optim_transform = optax.identity()
     else:
-        raise ValueError(f"Unknown optimizer: {training_settings.optim_name}")
+        raise ValueError(f"Unknown optimizer: {optimizer_settings.optim_name}")
 
-    if training_settings.log_weight_decay is not None:
+    if optimizer_settings.log_weight_decay is not None:
         weight_decay_transform = optax.add_decayed_weights(
-            10**training_settings.log_weight_decay
+            10**optimizer_settings.log_weight_decay
         )
     else:
         weight_decay_transform = optax.identity()
@@ -59,8 +59,6 @@ def _apply_grads(optimizer, model_state, grads):
 
 
 def update(batch, model_state, model, optimizer):
-    outputs, model_state = model(batch, model_state, is_training=True)
-
     outputs, model_state, grads = model.value_and_grad(
         batch, model_state, is_training=True
     )

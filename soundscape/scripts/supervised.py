@@ -82,7 +82,7 @@ def instantiate(settings):
     )
 
     optimizer, model_state = optimizing.get_optimizer(
-        model_state, settings.optimizer, dataloader
+        model_state, settings.optimizer, dataloader.get_steps_per_epoch()
     )
 
     metrics_fn = metrics.get_metrics_function(dataloader.prior_weights())
