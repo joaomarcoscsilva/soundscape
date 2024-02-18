@@ -14,8 +14,4 @@ optimizer:
   epochs: 100
 
 dataloader:
-  batch_size: 128
-
-augmentation:
-  cutmix_alpha: 0
-  mixup_alpha: 1.0
+  batch_size: 2
