@@ -14,7 +14,7 @@ def linear(rng, loss_fn, num_classes, model_settings):
     model = Model(call_linear, loss_fn)
 
     params = {
-        "w": jax.random.normal(rng, (model_settings.input_dim, num_classes)),
+        "w": jax.random.normal(rng, (model_settings.input_dim, num_classes)) / 1e2,
         "b": jnp.zeros(num_classes),
     }
 

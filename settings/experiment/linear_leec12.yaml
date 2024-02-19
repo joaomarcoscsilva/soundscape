@@ -10,12 +10,6 @@ defaults:
 seed: 0
 num_epochs: 100
 
-optimizer:
-  epochs: 100
-
-dataloader:
-  batch_size: 128
-
 augmentation:
   cutmix_alpha: 0
   mixup_alpha: 1.0

@@ -2,6 +2,7 @@ import json
 
 import hydra
 from jax import numpy as jnp
+from omegaconf import OmegaConf
 from tqdm import tqdm
 
 
@@ -40,13 +41,13 @@ class Logger:
 
                 self.logs[prefix + key].append(val)
 
-    def _update_pbar(self, prefix):
+    def _update_pbar(self):
         descs = []
 
         merged = self.merge()
         for key in merged.keys() & self.pbar_keys:
             mean = mean_keep_dtype(merged[key])
-            descs.append(f"{prefix+key} {format_digits(mean)}")
+            descs.append(f"{key} {format_digits(mean)}")
 
         self.pbar.set_description(" █ ".join(descs))
         self.pbar.update()
@@ -54,7 +55,7 @@ class Logger:
     def update(self, *dictionaries, prefix=""):
         self._merged = None
         self._extract_keys(dictionaries, prefix)
-        self._update_pbar(prefix)
+        self._update_pbar()
 
     def merge(self):
         if self._merged is None:

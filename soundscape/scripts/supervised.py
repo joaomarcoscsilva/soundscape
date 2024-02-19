@@ -1,4 +1,3 @@
-import contextlib
 from functools import partial
 from typing import Callable, NamedTuple
 
@@ -6,6 +5,7 @@ import hydra
 import jax
 import optax
 from jax import random
+from omegaconf import DictConfig
 
 from soundscape import log, metrics, optimizing
 from soundscape.dataset import dataloading, preprocessing
@@ -22,6 +22,7 @@ class TrainingEnvironment(NamedTuple):
     logger: log.Logger
     num_epochs: int
     metrics: Callable[[Batch, Predictions], Batch]
+    settings: DictConfig
 
 
 def train_for_epoch(rng, model_state, epoch_i, env):
@@ -57,7 +58,7 @@ def train_for_epoch(rng, model_state, epoch_i, env):
 
 def train(rng, model_state, env):
     env.logger.restart()
-    for epoch_i in range(env.num_epochs):
+    for epoch_i in range(env.settings.optimizer.epochs):
         logs, model_state = train_for_epoch(rng, model_state, epoch_i, env)
         env.logger.update(logs)
         if env.logger.early_stop():
@@ -87,7 +88,10 @@ def instantiate(settings):
 
     metrics_fn = metrics.get_metrics_function(dataloader.prior_weights())
 
-    logger = log.get_logger(settings.logger, pbar_len=settings.num_epochs, pbar_level=1)
+    logger = log.get_logger(
+        settings.logger, pbar_len=settings.optimizer.epochs, pbar_level=1
+    )
+
     epoch_logger = log.get_logger(settings.epoch_logger, pbar_len=len(dataloader))
 
     return (
@@ -102,15 +106,18 @@ def instantiate(settings):
             logger=logger,
             num_epochs=settings.optimizer.epochs,
             metrics=metrics_fn,
+            settings=settings,
         ),
     )
 
 
 @hydra.main(
-    config_path="../../settings", config_name="linear_leec12.yaml", version_base=None
+    config_path="../../settings",
+    config_name="experiment/linear_leec12.yaml",
+    version_base=None,
 )
 def main(settings):
-    rng, model_state, env = instantiate(settings)
+    rng, model_state, env = instantiate(settings.experiment)
 
     cpu_only = jax.devices()[0].platform == "cpu"
     train(rng, model_state, env)

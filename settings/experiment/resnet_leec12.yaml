@@ -1,6 +1,6 @@
 defaults:
   - /dataloader: leec12
-  - /model: linear
+  - /model: resnet50
   - /optimizer: adamw
   - /augmentation: leec
   - /logger: logger
@@ -8,10 +8,9 @@ defaults:
   
 
 seed: 0
-num_epochs: 100
 
 optimizer:
   epochs: 100
 
-dataloader:
-  batch_size: 2
+augmentation:
+  mixup_alpha: 1.0
