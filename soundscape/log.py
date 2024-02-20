@@ -45,9 +45,10 @@ class Logger:
         descs = []
 
         merged = self.merge()
-        for key in merged.keys() & self.pbar_keys:
-            mean = mean_keep_dtype(merged[key])
-            descs.append(f"{key} {format_digits(mean)}")
+        for key in self.pbar_keys:
+            if key in merged:
+                mean = mean_keep_dtype(merged[key])
+                descs.append(f"{key} {format_digits(mean)}")
 
         self.pbar.set_description(" █ ".join(descs))
         self.pbar.update()
@@ -93,20 +94,42 @@ class TrainingLogger(Logger):
         self.optimizing_sign = 1 if optimizing_mode == "max" else -1
         self.patience = patience
 
+    def _maximizing_metric(self):
+        if self.optimizing_metric is None:
+            return None
+
+        metric = self[self.optimizing_metric]
+        metric = metric.mean(range(1, metric.ndim))
+        metric = self.optimizing_sign * metric
+        return metric
+
+    def best(self):
+        if self.optimizing_metric is not None:
+            return self._maximizing_metric().max()
+        return None
+
+    def latest(self):
+        if self.optimizing_metric is not None:
+            return self._maximizing_metric()[-1]
+        return None
+
     def early_stop(self):
         for metric in self.nan_metrics:
-            if jnp.isnan(self[metric][-1]).any():
+            if not jnp.isfinite(self[metric][-1]).all():
                 return True
 
         if self.optimizing_metric is not None:
-            metric = self[self.optimizing_metric]
-            metric = metric.mean(range(1, metric.ndim))
-            metric = self.optimizing_sign * metric
-
+            metric = self._maximizing_metric()
             if jnp.argmax(metric) < len(metric) - self.patience:
                 return True
 
         return False
+
+    def improved(self):
+        if self.optimizing_metric is not None:
+            return self.latest() == self.best()
+
+        return True
 
 
 def get_logger(settings, *args, **kwargs):
@@ -121,6 +144,10 @@ def format_digits(val, digits=6):
     # Check if val is nan
     if jnp.isnan(val):
         return "   nan"
+
+    # Check if val is inf or -inf
+    if jnp.isinf(val):
+        return "   inf" if val > 0 else "  -inf"
 
     # Get the number of digits in the integer part
     integer_len = len(str(int(val)))

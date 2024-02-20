@@ -1,5 +1,6 @@
 import jax
 import numpy as np
+import optax
 from jax import numpy as jnp
 
 from soundscape import metrics
@@ -8,29 +9,12 @@ jax.config.update("jax_platform_name", "cpu")
 
 
 def assert_all_close(tree1, tree2):
-    (vals1, _) = jax.tree_util.tree_flatten(tree1)
-    (vals2, _) = jax.tree_util.tree_flatten(tree2)
+    (vals1, treedef1) = jax.tree_util.tree_flatten(tree1)
+    (vals2, treedef2) = jax.tree_util.tree_flatten(tree2)
+
+    assert treedef1 == treedef2
     for v1, v2 in zip(vals1, vals2):
         assert jnp.allclose(v1, v2)
-
-
-def test_logits():
-    outputs = {"logits": 123}
-
-    logits = metrics.logits("name")({}, outputs)
-
-    assert logits == {"name": 123}
-
-
-def test_balanced_logits():
-    ws = jnp.array([1, 2, 3])
-    batch = {"labels": jnp.array([0, 1, 1, 2])}
-    outputs = {"logits": jnp.ones((4, 3))}
-
-    bal_logits = metrics.weighted(metrics.logits("logits_w"), ws)(batch, outputs)
-
-    expected = {"logits": jnp.array([[1, 1, 1], [2, 2, 2], [2, 2, 2], [3, 3, 3]])}
-    assert_all_close(bal_logits, expected)
 
 
 def test_crossentropy():
@@ -68,32 +52,23 @@ def test_probs():
     assert_all_close(probs, expected)
 
 
-def test_preds():
-    outputs = {
-        "logits": jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
-    }
-
-    preds = metrics.preds("preds")({}, outputs)
-
-    expected = {"preds": jnp.array([2, 1, 0])}
-    assert_all_close(preds, expected)
-
-
 def test_accuracy():
     batch = {"labels": jnp.array([2, 0, 1, 1, 0])}
     outputs = {
-        "logits": jnp.array(
-            [
-                [0.1, 0.2, 0.7],
-                [7.2, 5.2, 2.1],
-                [10.1, 0.1, 0.8],
-                [0.05, 0.59, 0.1],
-                [10, 50, 1],
-            ]
+        "probabilities": jax.nn.softmax(
+            jnp.array(
+                [
+                    [0.1, 0.2, 0.7],
+                    [7.2, 5.2, 2.1],
+                    [10.1, 0.1, 0.8],
+                    [0.05, 0.59, 0.1],
+                    [10, 50, 1],
+                ]
+            )
         )
     }
 
-    acc = metrics.accuracy("acc")(batch, outputs)
+    acc = metrics.accuracy("acc", "probabilities")(batch, outputs)
 
     expected = {"acc": jnp.array([1, 1, 0, 1, 0])}
     assert_all_close(acc, expected)
@@ -102,7 +77,9 @@ def test_accuracy():
 def test_balanced_accuracy():
     batch = {"labels": jnp.array([1, 1, 0])}
     outputs = {
-        "logits": jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
+        "probs": jax.nn.softmax(
+            jnp.array([[0.1, 0.2, 0.7], [5.2, 7.5, 2.1], [10.1, 0.1, 0.8]])
+        )
     }
     class_weights = jnp.array([2, 1, 1])
 
@@ -129,3 +106,50 @@ def test_compose():
     brier = metrics.brier("brier")(batch, outputs)["brier"]
     expected = {"ce_loss": ce, "brier": brier, "logits": outputs["logits"]}
     assert_all_close(composed, expected)
+
+
+def test_metrics_fn():
+    batch = {
+        "label_probs": jnp.array(
+            [
+                [
+                    [0.0, 0.0, 1.0],
+                    [0.0, 0.5 + 1e-3, 0.5 - 1e-3],
+                    [1 / 3 + 2e-3, 1 / 3 - 1e-3, 1 / 3 - 1e-3],
+                    [0.9, 0.05, 0.05],
+                ]
+            ]
+        ),
+        "labels": jnp.array([[2, 1, 0, 0]]),
+    }
+
+    out_probs = jnp.array(
+        [
+            [0.1, 0.5, 0.4],
+            [1 / 3 + 2e-3, 1 / 3 - 1e-3, 1 / 3 - 1e-3],
+            [0.9, 0.05, 0.05],
+            [0.9, 0.05, 0.05],
+        ]
+    )
+    preds = {"logits": jnp.log(out_probs)}
+    class_weights = jnp.array([4, 2, 3])
+    ws = jnp.array([3, 2, 4, 4])
+
+    metrics_fn = metrics.get_metrics_function(class_weights)
+    outputs = metrics_fn(batch, preds)
+
+    expected = {
+        "logits": preds["logits"],
+        "probs": out_probs,
+        "probs_w": out_probs * class_weights,
+        "acc": jnp.array([[0.0, 0.0, 1.0, 1.0]]),
+        "acc_w": jnp.array([[1.0, 0.0, 1.0, 1.0]]),
+        "bal_acc": jnp.array([[0.0, 0.0, 4.0, 4.0]]),
+        "bal_acc_w": jnp.array([[3.0, 0.0, 4.0, 4.0]]),
+        "ce_loss": optax.softmax_cross_entropy(
+            jnp.log(out_probs), batch["label_probs"]
+        ),
+        "brier": jnp.sum((out_probs - batch["label_probs"]) ** 2, -1),
+    }
+
+    assert_all_close(outputs, expected)

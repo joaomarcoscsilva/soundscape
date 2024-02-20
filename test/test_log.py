@@ -124,7 +124,18 @@ def test_prefix():
 
 
 def test_format_digits():
-    vals = [1, 12, 2.0, 2.01, 2.000000001, 123.0000001, 123.0123131, np.float32("nan")]
+    vals = [
+        1,
+        12,
+        2.0,
+        2.01,
+        2.000000001,
+        123.0000001,
+        123.0123131,
+        np.float32("nan"),
+        np.float32("inf"),
+        np.float32("-inf"),
+    ]
     expected = [
         "     1",
         "    12",
@@ -134,6 +145,8 @@ def test_format_digits():
         "123.00",
         "123.01",
         "   nan",
+        "   inf",
+        "  -inf",
     ]
     formatted = [log.format_digits(np.array([val])[0], 6) for val in vals]
     assert formatted == expected
@@ -205,3 +218,38 @@ def test_mean_keep_dtype():
     assert log.mean_keep_dtype(x_int32).dtype == np.int32
     assert log.mean_keep_dtype(x_int64).dtype == np.int64
     assert log.mean_keep_dtype(x_float32).dtype == np.float32
+
+
+def test_optimizing_metric():
+    logger = log.TrainingLogger(["a"], optimizing_metric="a", optimizing_mode="max")
+    logger.restart()
+
+    logger.update({"a": np.array([[1]])})
+    assert logger.improved()
+    assert logger.best() == logger.latest() == 1
+
+    logger.update({"a": np.array([[2]])})
+    assert logger.improved()
+    assert logger.best() == logger.latest() == 2
+
+    logger.update({"a": np.array([[3]])})
+    assert logger.improved()
+    assert logger.best() == logger.latest() == 3
+
+    logger.update({"a": np.array([[3]])})
+    assert logger.improved()
+    assert logger.best() == logger.latest() == 3
+
+    logger.update({"a": np.array([[1]])})
+    assert not logger.improved()
+    assert logger.best() == 3
+    assert logger.latest() == 1
+
+    logger.update({"a": np.array([[2]])})
+    assert not logger.improved()
+    assert logger.best() == 3
+    assert logger.latest() == 2
+
+    logger.update({"a": np.array([[4]])})
+    assert logger.improved()
+    assert logger.best() == logger.latest() == 4

@@ -58,12 +58,15 @@ def train_for_epoch(rng, model_state, epoch_i, env):
 
 def train(rng, model_state, env):
     env.logger.restart()
+
     for epoch_i in range(env.settings.optimizer.epochs):
         logs, model_state = train_for_epoch(rng, model_state, epoch_i, env)
         env.logger.update(logs)
         if env.logger.early_stop():
+            print("\nEarly stopping")
             break
-    return env.logger.serialized()
+
+    return env
 
 
 def instantiate(settings):
@@ -118,8 +121,6 @@ def instantiate(settings):
 )
 def main(settings):
     rng, model_state, env = instantiate(settings.experiment)
-
-    cpu_only = jax.devices()[0].platform == "cpu"
     train(rng, model_state, env)
 
 

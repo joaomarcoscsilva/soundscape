@@ -6,6 +6,16 @@ from omegaconf import DictConfig
 ConfigGenerator = callable[[jax.random.PRNGKey, DictConfig], DictConfig]
 
 
+def gen_settings(rng, base_settings, hpsearch_settings):
+    settings = base_settings.copy()
+
+    _rng, rng = jax.random.split(rng)
+    augment = jax.random.uniform(rng) < hpsearch_settings.augment_chance
+
+    if augment:
+        pass
+
+
 def hpsearch(rng, num_runs, gen: ConfigGenerator, keep_model=True):
     """
     Run a hyperparameter search given a configuration generator.

@@ -30,3 +30,6 @@ nan_metrics:
   - val_ce_loss
   - logits
   - val_logits 
+
+optimizing_metric: val_bal_acc
+patience: 5
