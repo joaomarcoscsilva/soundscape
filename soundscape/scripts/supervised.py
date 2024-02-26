@@ -7,7 +7,7 @@ import optax
 from jax import random
 from omegaconf import DictConfig
 
-from soundscape import log, metrics, optimizing
+from soundscape import calibrate, log, metrics, optimizing
 from soundscape.dataset import dataloading, preprocessing
 from soundscape.models import base_model
 from soundscape.types import Batch, Predictions
@@ -23,6 +23,8 @@ class TrainingEnvironment(NamedTuple):
     num_epochs: int
     metrics: Callable[[Batch, Predictions], Batch]
     settings: DictConfig
+    calibrator: Callable[[jax.Array, jax.Array], tuple[dict, dict]]
+    results: dict = {}
 
 
 def train_for_epoch(rng, model_state, epoch_i, env):
@@ -38,18 +40,18 @@ def train_for_epoch(rng, model_state, epoch_i, env):
             batch, model_state, env.model, env.optimizer
         )
         outputs = env.metrics(batch, outputs)
-        env.epoch_logger.update(batch, outputs)
+        env.epoch_logger.update(batch, outputs, prefix="train_")
 
     for batch in env.dataloader.iterate(rng_val, "val"):
         batch = env.preprocess(batch, training=False)
-        outputs, _ = env.model(batch, model_state)
+        outputs, _ = env.model(batch, model_state, training=False)
         outputs = env.metrics(batch, outputs)
         env.epoch_logger.update(batch, outputs, prefix="val_")
 
     if env.dataloader.include_test:
         for batch in env.dataloader.iterate(rng_test, "test"):
             batch = env.preprocess(batch, training=False)
-            outputs, _ = env.model(batch, model_state)
+            outputs, _ = env.model(batch, model_state, training=False)
             outputs = env.metrics(batch, outputs)
             env.epoch_logger.update(batch, outputs, prefix="test_")
 
@@ -57,6 +59,8 @@ def train_for_epoch(rng, model_state, epoch_i, env):
 
 
 def train(rng, model_state, env):
+    print("Training...")
+
     env.logger.restart()
 
     for epoch_i in range(env.settings.optimizer.epochs):
@@ -67,6 +71,20 @@ def train(rng, model_state, env):
             break
 
     return env
+
+
+def calibrate_results(env):
+    print("Calibrating...")
+
+    val_label_probs = jax.nn.one_hot(
+        env.logger["val_labels"], env.dataloader.num_classes
+    )
+    cal_states, cal_models = env.calibrator(env.logger["val_logits"], val_label_probs)
+    cal_results = calibrate.get_calibrated_metrics(
+        env.logger, cal_states, cal_models, env.metrics
+    )
+
+    return env._replace(results=cal_results)
 
 
 def instantiate(settings):
@@ -97,6 +115,8 @@ def instantiate(settings):
 
     epoch_logger = log.get_logger(settings.epoch_logger, pbar_len=len(dataloader))
 
+    calibrator = partial(calibrate.calibrate_all, cal_config=settings.calibrator)
+
     return (
         rng,
         model_state,
@@ -110,6 +130,7 @@ def instantiate(settings):
             num_epochs=settings.optimizer.epochs,
             metrics=metrics_fn,
             settings=settings,
+            calibrator=calibrator,
         ),
     )
 
@@ -121,7 +142,8 @@ def instantiate(settings):
 )
 def main(settings):
     rng, model_state, env = instantiate(settings.experiment)
-    train(rng, model_state, env)
+    env = train(rng, model_state, env)
+    env = calibrate_results(env)
 
 
 if __name__ == "__main__":

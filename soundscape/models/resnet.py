@@ -84,7 +84,7 @@ def resnet(rng, loss_fn, num_classes, model_settings):
         partition_fns[model_settings.trainable_weights], variables["params"]
     )
 
-    def call_resnet(batch: Batch, model_state: ModelState, is_training: bool = True):
+    def call_resnet(batch: Batch, model_state: ModelState, is_training: bool):
         params = hk.data_structures.merge(model_state.params, model_state.fixed_params)
         inputs = _normalize_inputs(batch["inputs"])
 

@@ -19,10 +19,9 @@ class Batch(TypedDict, total=False):
 
 class ModelState(NamedTuple):
     params: PyTree
-    fixed_params: PyTree
-
-    state: Optional[PyTree]
-    optim_state: Optional[PyTree]
+    fixed_params: PyTree = None
+    state: Optional[PyTree] = None
+    optim_state: Optional[PyTree] = None
 
 
 class Predictions(TypedDict, total=False):

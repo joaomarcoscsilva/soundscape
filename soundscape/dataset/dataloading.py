@@ -158,8 +158,8 @@ class DataLoader:
 
         return {
             "labels": labels,
+            "ids": ids,
             "_files": filenames,
-            "_ids": ids,
         }
 
     def get_split_dataloader(

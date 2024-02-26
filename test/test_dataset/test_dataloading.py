@@ -34,7 +34,7 @@ def get_dataloader(name, include_test=True, **kwargs):
 
 def assert_no_leaks(*metadata_sets):
     file_sets = [set(metadata["_files"]) for metadata in metadata_sets]
-    id_sets = [set(metadata["_ids"]) for metadata in metadata_sets]
+    id_sets = [set(metadata["ids"]) for metadata in metadata_sets]
 
     assert sum(len(s) for s in file_sets) == len(set.union(*file_sets))
     assert sum(len(s) for s in id_sets) == len(set.union(*id_sets))
@@ -60,8 +60,8 @@ def assert_split_size(split_metadata, size):
 def assert_disjoint(*splits_metadata):
     for i in range(len(splits_metadata)):
         for j in range(i + 1, len(splits_metadata)):
-            i_ids = set(splits_metadata[i]["_ids"])
-            j_ids = set(splits_metadata[j]["_ids"])
+            i_ids = set(splits_metadata[i]["ids"])
+            j_ids = set(splits_metadata[j]["ids"])
             assert i_ids & j_ids == set()
 
 
@@ -72,7 +72,7 @@ def assert_has_all_classes(*splits_metadata, num_classes):
 
 def assert_no_repeats(*splits_metadata):
     for split_metadata in splits_metadata:
-        assert len(set(split_metadata["_ids"])) == len(split_metadata["_ids"])
+        assert len(set(split_metadata["ids"])) == len(split_metadata["ids"])
 
 
 def assert_roughly_balanced(*splits_metadata):

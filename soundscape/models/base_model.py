@@ -34,8 +34,14 @@ class Model:
         grad_fn = jax.value_and_grad(_predict_with_loss, has_aux=True, argnums=1)
         self._grad_fn = jax.jit(grad_fn, static_argnums=(3,), donate_argnums=(1, 2))
 
-    def __call__(self, *args, **kwds):
-        return self.call_fn(*args, **kwds)
+    def __call__(self, batch, model_state, training):
+        if not isinstance(batch, dict):
+            batch = {"inputs": batch}
+
+        if not isinstance(model_state, ModelState):
+            model_state = ModelState(params=model_state)
+
+        return self.call_fn(batch, model_state, training)
 
     def value_and_grad(
         self,

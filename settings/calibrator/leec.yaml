@@ -1,0 +1,2 @@
+lr: 1e-1
+num_steps: 5000

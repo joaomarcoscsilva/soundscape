@@ -5,6 +5,7 @@ defaults:
   - /augmentation: leec
   - /logger: logger
   - /logger@epoch_logger: epoch_logger
+  - /calibrator: leec
   
 
 seed: 0

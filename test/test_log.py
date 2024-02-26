@@ -19,7 +19,7 @@ def assert_tree_equal(a, b):
 
 
 def test_simple_logger():
-    logger = log.Logger(["a", "b"])
+    logger = log.Logger()
     logger.restart()
 
     logger.update({"a": np.array([1]), "b": np.array([2])})
@@ -37,15 +37,15 @@ def test_simple_logger():
 
     # Assert that the logger can be reset
     logger.restart()
-    assert logger.logs == {"a": [], "b": []}
+    assert logger._logs == {}
     assert logger.close() == {}
 
 
 def test_incremental_additions():
-    logger = log.Logger(["a", "b"])
+    logger = log.Logger()
     logger.restart()
 
-    logger.update({"a": np.array([1]), "c": None})
+    logger.update({"a": np.array([1])})
     assert_tree_equal(logger.merge(), {"a": np.array([1])})
 
     logger.update({"a": np.array([2]), "b": np.array([3])})
@@ -56,19 +56,20 @@ def test_incremental_additions():
 
 
 def test_serialize():
-    logger = log.Logger(["a", "b", "c"], saved_keys=["a", "b"])
+    logger = log.TrainingLogger(saved_keys=["a", "b"])
     logger.restart()
 
     logger.update({"a": np.array([1]), "b": np.array([2]), "c": np.array([3])})
     logger.update({"a": np.array([3]), "b": np.array([4]), "c": np.array([5])})
     logger.update({"a": np.array([5]), "b": np.array([6]), "c": np.array([7])})
+    logger.update({"a": np.array([1]), "c": np.array([3])}, prefix="val_")
     serialized = logger.serialized()
 
-    assert serialized == '{"a": [1, 3, 5], "b": [2, 4, 6]}'
+    assert serialized == '{"a": [1, 3, 5], "b": [2, 4, 6], "val_a": [1]}'
 
 
 def test_pbar():
-    logger = log.Logger(["a", "b"], pbar_len=4, pbar_keys=["a"])
+    logger = log.Logger(pbar_len=4, pbar_keys=["a"])
     logger.restart()
 
     logger.update({"b": np.array([2])})
@@ -86,7 +87,7 @@ def test_pbar():
 
 
 def test_stack_logger():
-    logger = log.Logger(["a", "b"], merge_fn="stack")
+    logger = log.Logger(merge_fn="stack")
     logger.restart()
 
     logger.update({"a": np.array([1]), "b": np.array([2])})
@@ -104,13 +105,13 @@ def test_stack_logger():
 
 
 def test_prefix():
-    logger = log.Logger(["a", "b"])
+    logger = log.Logger()
     logger.restart()
 
     logger.update({"a": np.array([1]), "b": np.array([2])})
     logger.update({"a": np.array([3]), "b": np.array([4])})
     logger.update({"a": np.array([5]), "b": np.array([6])}, prefix="test_")
-    results = logger.close()
+    results = logger.merge()
 
     assert_tree_equal(
         results,
@@ -153,7 +154,7 @@ def test_format_digits():
 
 
 def test_scalar():
-    logger = log.Logger(["a", "b"])
+    logger = log.Logger()
     logger.restart()
 
     logger.update({"a": 1, "b": np.array([2])})
@@ -171,7 +172,7 @@ def test_scalar():
 
 
 def test_nan_early_stopping():
-    logger = log.TrainingLogger(["a", "b"], nan_metrics=["a"])
+    logger = log.TrainingLogger(nan_metrics=["a"])
     logger.restart()
 
     logger.update({"a": np.array([1]), "b": np.array([2])})
@@ -183,10 +184,16 @@ def test_nan_early_stopping():
     logger.update({"a": np.array([np.nan]), "b": np.array([np.nan])})
     assert logger.early_stop()
 
+    logger.restart()
+    assert not logger.early_stop()
+
+    logger.update({"a": np.array([np.nan]), "b": np.array([1])}, prefix="val_")
+    assert logger.early_stop()
+
 
 def test_patience_early_stopping():
     logger = log.TrainingLogger(
-        ["a"], optimizing_metric="a", patience=2, optimizing_mode="min"
+        optimizing_metric="a", patience=2, optimizing_mode="min"
     )
     logger.restart()
 
@@ -221,35 +228,77 @@ def test_mean_keep_dtype():
 
 
 def test_optimizing_metric():
-    logger = log.TrainingLogger(["a"], optimizing_metric="a", optimizing_mode="max")
+    logger = log.TrainingLogger(optimizing_metric="a", optimizing_mode="max")
     logger.restart()
 
     logger.update({"a": np.array([[1]])})
     assert logger.improved()
     assert logger.best() == logger.latest() == 1
+    assert logger.best_epoch() == 0
 
     logger.update({"a": np.array([[2]])})
     assert logger.improved()
     assert logger.best() == logger.latest() == 2
+    assert logger.best_epoch() == 1
 
     logger.update({"a": np.array([[3]])})
     assert logger.improved()
     assert logger.best() == logger.latest() == 3
+    assert logger.best_epoch() == 2
 
     logger.update({"a": np.array([[3]])})
     assert logger.improved()
     assert logger.best() == logger.latest() == 3
-
-    logger.update({"a": np.array([[1]])})
-    assert not logger.improved()
-    assert logger.best() == 3
-    assert logger.latest() == 1
+    assert logger.best_epoch() == 2
 
     logger.update({"a": np.array([[2]])})
     assert not logger.improved()
     assert logger.best() == 3
     assert logger.latest() == 2
+    assert logger.best_epoch() == 2
 
     logger.update({"a": np.array([[4]])})
     assert logger.improved()
     assert logger.best() == logger.latest() == 4
+    assert logger.best_epoch() == 5
+
+
+def test_none_optimizing_metric():
+    logger = log.TrainingLogger(
+        optimizing_metric=None, optimizing_mode="min", patience=1
+    )
+    logger.restart()
+
+    logger.update({"a": np.array([[2]])})
+    assert logger.best() == logger.latest() == None
+    assert logger.best_epoch() == -1
+    assert logger.improved()
+
+    logger.update({"a": np.array([[1]])})
+    assert logger.best_epoch() == -1
+    assert logger.improved()
+
+    logger.update({"a": np.array([[0]])})
+    assert logger.best_epoch() == -1
+    assert not logger.early_stop()
+    assert logger.improved()
+
+
+def test_best_epoch_metrics():
+    logger = log.TrainingLogger(optimizing_metric="a", optimizing_mode="max")
+    val = {"a": np.random.rand(10, 5), "b": np.random.rand(10, 7)}
+    train = {"a": np.random.rand(10, 5), "b": np.random.rand(10, 7)}
+    test = {"a": np.random.rand(10, 5), "b": np.random.rand(10, 7)}
+    val["a"][4] = 2
+
+    best_epoch = logger.best_epoch(val)
+    best_metrics_train = logger.best_epoch_metrics(val, train)
+    best_metrics_test = logger.best_epoch_metrics(val, test)
+    best_metrics_val = logger.best_epoch_metrics(val, val)
+
+    assert best_epoch == 4
+    assert best_metrics_train["a"] == train["a"][4].mean()
+    assert best_metrics_test["a"] == test["a"][4].mean()
+    assert best_metrics_train["b"] == train["b"][4].mean()
+    assert best_metrics_test["b"] == test["b"][4].mean()
+    assert best_metrics_val["a"] == val["a"][4].mean()

@@ -2,34 +2,52 @@ _target_: soundscape.log.TrainingLogger
 
 keys:
   - epoch
-  - ce_loss
-  - val_ce_loss
-  - bal_acc
-  - val_bal_acc
-  - bal_acc_w
-  - val_bal_acc_w
-  - brier
-  - val_brier
-  - logits
-  - val_logits
-  - labels
-  - val_labels
 
-saved_keys:
-  - logits
+  - train_ce_loss
+  - val_ce_loss
+  - test_ce_loss
+
+  - train_bal_acc
+  - val_bal_acc
+  - test_bal_acc
+
+  - train_bal_acc_w
+  - val_bal_acc_w
+  - test_bal_acc_w
+
+  - train_brier
+  - val_brier
+  - test_brier
+
+  - train_logits
   - val_logits
   - test_logits
-  - labels
+
+  - train_labels
   - val_labels
   - test_labels
+
+  - train_ids
+  - val_ids
+  - test_ids
+
+saved_keys:
+  - train_logits
+  - val_logits
+  - test_logits
+  - train_labels
+  - val_labels
+  - test_labels
+  - train_ids
+  - val_ids
+  - test_ids
 
 merge_fn: stack
 
 nan_metrics:
-  - ce_loss
+  - train_ce_loss
   - val_ce_loss
-  - logits
-  - val_logits 
+  - test_ce_loss
 
 optimizing_metric: val_bal_acc
 patience: 5
