@@ -55,6 +55,23 @@ def test_incremental_additions():
     assert_tree_equal(logger.merge(), {"a": np.array([1, 2]), "b": np.array([3, 5])})
 
 
+def test_logged_keys():
+    logger = log.Logger(logged_keys=["a"])
+    logger.restart()
+
+    logger.update({"a": np.array([1]), "b": np.array([2])})
+    logger.update({"a": np.array([3]), "b": np.array([4])})
+    logger.update({"a": np.array([5]), "b": np.array([6])})
+    results = logger.close()
+
+    assert_tree_equal(
+        results,
+        {
+            "a": np.array([1, 3, 5]),
+        },
+    )
+
+
 def test_serialize():
     logger = log.TrainingLogger(saved_keys=["a", "b"])
     logger.restart()

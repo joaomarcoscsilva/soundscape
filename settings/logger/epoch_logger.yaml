@@ -1,6 +1,6 @@
 _target_: soundscape.log.Logger
 
-keys:
+logged_keys:
   - epoch
   - ce_loss
   - bal_acc

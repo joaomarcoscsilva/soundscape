@@ -6,6 +6,8 @@ from jax import numpy as jnp
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
+import wandb
+
 
 def _wrap_merge_fn(merge_fn):
     return lambda values: merge_fn(values) if isinstance(values, list) else values
@@ -18,6 +20,7 @@ class Logger:
         pbar_keys=[],
         merge_fn="concat",
         pbar_level=0,
+        logged_keys=None,
     ):
         self.pbar_keys = pbar_keys
         self.merge_fn = _wrap_merge_fn(
@@ -25,6 +28,7 @@ class Logger:
         )
         self.pbar_len = pbar_len
         self.pbar_level = pbar_level
+        self.logged_keys = logged_keys
         self._merged = None
         self.prefixes = set()
 
@@ -39,6 +43,9 @@ class Logger:
 
         for dictionary in dictionaries:
             for key in dictionary.keys():
+                if self.logged_keys is not None and key not in self.logged_keys:
+                    continue
+
                 if prefix + key not in self._logs:
                     self._logs[prefix + key] = []
 
@@ -160,8 +167,9 @@ class TrainingLogger(Logger):
         selected_epoch = -1 if metric is None else metric.argmax()
         return selected_epoch
 
-    def best_epoch_metrics(self, sel_metrics=None, metrics=None):
+    def best_epoch_metrics(self, sel_metrics=None, metrics=None, prefix=""):
         sel_metrics = self.merge() if sel_metrics is None else sel_metrics
+        sel_metrics = {prefix + k: v for k, v in sel_metrics.items()}
         metrics = self.merge() if metrics is None else metrics
 
         best_epoch = self.best_epoch(sel_metrics)
@@ -203,37 +211,24 @@ def mean_keep_dtype(x):
     return x.mean(dtype=x.dtype)
 
 
-# def save_params(
-#     values, *, name, save_weights, early_stopping, optimizing_metric, optimizing_mode
-# ):
-#     """
-#     Save the parameters of the model to a file.
-#     """
+class WandbLogger(TrainingLogger):
+    def __init__(self, settings, *args, wandb_settings=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.use_wandb = wandb_settings is not None
 
-#     if not save_weights:
-#         return values
+        if self.use_wandb:
+            wandb.init(
+                config=OmegaConf.to_container(settings, resolve=True),
+                reinit=True,
+                **wandb_settings,
+            )
 
-#     keys = ["params", "fixed_params", "state"]
-#     to_save = {k: values[k] for k in keys if k in values}
+    def wandb_log_dict(self, dictionary):
+        if self.use_wandb:
+            wandb.log(dictionary)
 
-#     save = not early_stopping
-
-#     if early_stopping:
-#         metric = values["_epoch_logs"][optimizing_metric]
-
-#         if optimizing_mode == "min":
-#             metric = -metric
-
-#         if metric.ndim != 1:
-#             raise ValueError(
-#                 f"Metric {optimizing_metric} should be be a mean over the epoch."
-#             )
-
-#         if metric[-1] == metric.max():
-#             save = True
-
-#     if save:
-#         with open(f"params/{name}.pkl", "wb") as f:
-#             pickle.dump(to_save, f)
-
-#     return values
+    def update(self, *dictionaries, prefix=""):
+        super().update(*dictionaries, prefix=prefix)
+        wandb_logs = {k: v[-1].mean() for k, v in self.merge().items()}
+        self.wandb_log_dict(wandb_logs)
+        return wandb_logs

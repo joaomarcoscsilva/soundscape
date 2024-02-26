@@ -1,35 +1,4 @@
-_target_: soundscape.log.TrainingLogger
-
-keys:
-  - epoch
-
-  - train_ce_loss
-  - val_ce_loss
-  - test_ce_loss
-
-  - train_bal_acc
-  - val_bal_acc
-  - test_bal_acc
-
-  - train_bal_acc_w
-  - val_bal_acc_w
-  - test_bal_acc_w
-
-  - train_brier
-  - val_brier
-  - test_brier
-
-  - train_logits
-  - val_logits
-  - test_logits
-
-  - train_labels
-  - val_labels
-  - test_labels
-
-  - train_ids
-  - val_ids
-  - test_ids
+_target_: soundscape.log.WandbLogger
 
 saved_keys:
   - train_logits
@@ -51,3 +20,6 @@ nan_metrics:
 
 optimizing_metric: val_bal_acc
 patience: 5
+
+wandb_settings:
+  project: soundscape

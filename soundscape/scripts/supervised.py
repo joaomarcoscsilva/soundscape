@@ -84,6 +84,9 @@ def calibrate_results(env):
         env.logger, cal_states, cal_models, env.metrics
     )
 
+    if isinstance(env.logger, log.WandbLogger):
+        env.logger.wandb_log_dict({"results": cal_results})
+
     return env._replace(results=cal_results)
 
 
@@ -110,7 +113,10 @@ def instantiate(settings):
     metrics_fn = metrics.get_metrics_function(dataloader.prior_weights())
 
     logger = log.get_logger(
-        settings.logger, pbar_len=settings.optimizer.epochs, pbar_level=1
+        settings.logger,
+        settings,
+        pbar_len=settings.optimizer.epochs,
+        pbar_level=1,
     )
 
     epoch_logger = log.get_logger(settings.epoch_logger, pbar_len=len(dataloader))

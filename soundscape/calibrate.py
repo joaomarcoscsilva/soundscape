@@ -102,9 +102,11 @@ def get_calibrated_metrics(logger, cal_states, cal_models, metrics_fn):
             logits, labels, label_probs, cal_states, cal_models, metrics_fn
         )
 
+    for split in splits:
+
         best_metrics[split] = {
             cal_name: logger.best_epoch_metrics(
-                metrics["val"][cal_name], metrics[split][cal_name]
+                metrics["val"][cal_name], metrics[split][cal_name], prefix="val_"
             )
             for cal_name in cal_states
         }
