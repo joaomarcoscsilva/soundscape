@@ -1,35 +1,20 @@
-FROM nvidia/cuda:11.6.1-cudnn8-devel-ubuntu20.04
+FROM nvcr.io/nvidia/jax:23.10-paxml-py3
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-ENV NV_CUDNN_VERSION 8.5.0.96
-ENV NV_CUDNN_PACKAGE_NAME "libcudnn8"
-ENV NV_CUDNN_PACKAGE "libcudnn8=$NV_CUDNN_VERSION-1+cuda11.7"
-ENV NV_CUDNN_PACKAGE_DEV "libcudnn8-dev=$NV_CUDNN_VERSION-1+cuda11.7"
-ENV XLA_PYTHON_CLIENT_MEM_FRACTION 0.7
-ENV PYTHONPATH $PYTHONPATH:/home/jmsilva/soundscape
-ENV LD_LIBRARY_PATH $LD_LIBRARY_PATH:$CONDA_PREFIX/lib/
-
 RUN apt-get update -y 
-RUN apt-get install -y software-properties-common build-essential libblas-dev libhdf5-serial-dev
+RUN apt-get install -y software-properties-common build-essential libblas-dev libhdf5-serial-dev unzip
 RUN apt-get install -y git tmux htop zsh neovim curl
-RUN apt-get install -y python3.9 python3-pip
 RUN sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-
-RUN ln -s /usr/bin/python3 /usr/bin/python
-RUN ln -f -s /usr/bin/python3.9 /usr/local/bin/python
 
 RUN git config --global --add safe.directory /home/jmsilva/soundscape
 RUN git config --global user.email joaomarcoscsilva@usp.br
 RUN git config --global user.name "João Marcos Cardoso da Silva"
 
 RUN python -m pip install -U pip
-RUN pip install tensorflow torch
+RUN pip install transformers p_tqdm hydra-core dm-haiku jax_resnet imageio librosa kaggle 
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install wandb
 
 WORKDIR /root
-COPY requirements.txt requirements.txt
-RUN pip install -r requirements.txt
-RUN pip install "jax[cuda11_cudnn82]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-
-WORKDIR /home/jmsilva
 CMD zsh
