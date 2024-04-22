@@ -217,3 +217,19 @@ def test_tf2jax():
     assert (b["id"] == a["id"].numpy()).all()
     assert (b["rngs"] == a["rngs"].numpy()).all()
     assert (b["_file"] == a["_file"].numpy()).all()
+
+
+def test_wav_dataloader():
+    rng1 = random.PRNGKey(0)
+    dl = get_dataloader("leec12")
+    dl_wav = get_dataloader("leec12_wav")
+
+    for i, (batch, batch_wav) in enumerate(
+        zip(dl.iterate(rng1, "val"), dl_wav.iterate(rng1, "val"))
+    ):
+        assert (batch["labels"] == batch_wav["labels"]).all()
+        assert (batch["ids"] == batch_wav["ids"]).all()
+        assert batch_wav["inputs"].shape == (32, 256, 423, 1)
+
+        if i == 5:
+            break

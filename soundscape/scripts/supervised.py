@@ -70,6 +70,9 @@ def train(rng, model_state, env):
             print("\nEarly stopping")
             break
 
+    results = calibrate_results(env)
+
+    env = env._replace(results=results)
     return env
 
 
@@ -87,7 +90,7 @@ def calibrate_results(env):
     if isinstance(env.logger, log.WandbLogger):
         env.logger.wandb_log_dict({"results": cal_results})
 
-    return env._replace(results=cal_results)
+    return cal_results
 
 
 def instantiate(settings):
@@ -142,14 +145,13 @@ def instantiate(settings):
 
 
 @hydra.main(
-    config_path="../../settings",
-    config_name="experiment/linear_leec12.yaml",
+    config_path="../../settings/experiment",
+    config_name="linear_leec12.yaml",
     version_base=None,
 )
 def main(settings):
-    rng, model_state, env = instantiate(settings.experiment)
-    env = train(rng, model_state, env)
-    env = calibrate_results(env)
+    rng, model_state, env = instantiate(settings)
+    train(rng, model_state, env)
 
 
 if __name__ == "__main__":
