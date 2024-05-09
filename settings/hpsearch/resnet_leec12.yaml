@@ -12,25 +12,27 @@ log_lr:
   max: -1
 
 log_wd:
-  min: -3
-  max: 0
+  min: -2.5
+  max: -1
 
 sub_log_momentum:
   min: -3
-  max: 0
+  max: -1
 
 augment:
   chance: 1.0
 
+  mixup_chance: 1.0
   mixup:
-    min: 0.5
-    max: 2.0
+    min: 0.0
+    max: 2.5
 
+  cutmix_chance: 0.7
   cutmix:
     min: 0.0
-    max: 0.5
+    max: 1.0
 
-  random_crop_chance: 0.1
+  random_crop_chance: 0
 
   cropped_length:
     min: 3
