@@ -96,6 +96,8 @@ class TrainingLogger(Logger):
         optimizing_mode="max",
         patience=None,
         saved_keys=[],
+        initial_patience=None,
+        initial_patience_value=0,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -104,6 +106,8 @@ class TrainingLogger(Logger):
         self.patience = patience
         self.nan_metrics = set(nan_metrics)
         self.saved_keys = set(saved_keys)
+        self.initial_patience = initial_patience
+        self.initial_patience_value = initial_patience_value
 
     def _maximizing_metric(self, metrics=None):
         if self.optimizing_metric is None:
@@ -135,8 +139,13 @@ class TrainingLogger(Logger):
 
         if self.optimizing_metric is not None:
             metric = self._maximizing_metric()
-            if jnp.argmax(metric) < len(metric) - self.patience:
-                return True
+            if self.patience is not None:
+                if jnp.argmax(metric) < len(metric) - self.patience:
+                    return True
+
+            if self.initial_patience is not None:
+                if len(metric) == self.initial_patience and jnp.max(metric) < self.initial_patience_value:
+                    return True
 
         return False
 

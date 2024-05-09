@@ -1,10 +1,11 @@
 defaults:
   - /dataloader: leec12
   - /model: resnet50
-  - /optimizer: adamw
+  - /optimizer: sgd
   - /augmentation: leec
   - /logger: logger
   - /logger@epoch_logger: epoch_logger
+  - /calibrator: leec
   
 
 seed: 0

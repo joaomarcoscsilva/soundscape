@@ -19,7 +19,9 @@ nan_metrics:
   - test_ce_loss
 
 optimizing_metric: val_bal_acc
-patience: 5
+patience: null
+initial_patience: 15
+initial_patience_value: 0.2
 
 wandb_settings:
   project: soundscape

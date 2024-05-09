@@ -82,7 +82,7 @@ def calibrated_metrics(logits, labels, label_probs, cal_states, cal_models, metr
 
 
 def get_calibrated_metrics(logger, cal_states, cal_models, metrics_fn):
-    splits = ["val", "train", "test"]
+    splits = ["val", "test"]
     splits = [split for split in splits if split + "_logits" in logger.merge()]
 
     metrics = {split: {} for split in splits}

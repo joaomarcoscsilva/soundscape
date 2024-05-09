@@ -145,12 +145,12 @@ def instantiate(settings):
 
 
 @hydra.main(
-    config_path="../../settings/experiment",
-    config_name="linear_leec12.yaml",
+    config_path="../../settings",
+    config_name="experiment/linear_leec12.yaml",
     version_base=None,
 )
 def main(settings):
-    rng, model_state, env = instantiate(settings)
+    rng, model_state, env = instantiate(settings.experiment)
     train(rng, model_state, env)
 
 
