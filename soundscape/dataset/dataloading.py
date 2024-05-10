@@ -92,7 +92,7 @@ class DataLoader:
                 drop_remainder=split == "train",
             )
 
-            if split == "train":
+            if split == "val":
                 counts = jnp.bincount(
                     split_metadata["labels"], minlength=len(class_order)
                 )

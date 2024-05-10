@@ -44,18 +44,28 @@ def gen_settings(rng, hpsettings):
 
     if augment:
         _rng, rng = jax.random.split(rng)
-        exp.augmentation.mixup_alpha = float(jax.random.uniform(
-            _rng,
-            minval=hpsettings.augment.mixup.min,
-            maxval=hpsettings.augment.mixup.max,
-        ))
+        mixup = jax.random.uniform(_rng) < hpsettings.augment.mixup_chance 
+        if mixup:
+            _rng, rng = jax.random.split(rng)
+            exp.augmentation.mixup_alpha = float(jax.random.uniform(
+                _rng,
+                minval=hpsettings.augment.mixup.min,
+                maxval=hpsettings.augment.mixup.max,
+            ))
+        else:
+            exp.augmentation.mixup_alpha = None
 
         _rng, rng = jax.random.split(rng)
-        exp.augmentation.cutmix_alpha = float(jax.random.uniform(
-            _rng,
-            minval=hpsettings.augment.cutmix.min,
-            maxval=hpsettings.augment.cutmix.max,
-        ))
+        cutmix = jax.random.uniform(_rng) < hpsettings.augment.cutmix_chance 
+        if cutmix:
+            _rng, rng = jax.random.split(rng)
+            exp.augmentation.cutmix_alpha = float(jax.random.uniform(
+                _rng,
+                minval=hpsettings.augment.cutmix.min,
+                maxval=hpsettings.augment.cutmix.max,
+            ))
+        else:
+            exp.augmentation.cutmix_alpha = None
 
         _rng, rng = jax.random.split(rng)
         exp.augmentation.crop_type = (
