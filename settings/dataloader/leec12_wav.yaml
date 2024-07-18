@@ -1,0 +1,3 @@
+defaults:
+  - leec12
+  - override dataset: ../../dataset/leec_wav

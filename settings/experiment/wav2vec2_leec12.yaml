@@ -1,0 +1,17 @@
+defaults:
+  - /dataloader: leec12_wav
+  - /model: wav2vec2
+  - /optimizer: sgd
+  - /augmentation: leec
+  - /logger: logger
+  - /logger@epoch_logger: epoch_logger
+  - /calibrator: leec
+  
+
+seed: 0
+
+optimizer:
+  epochs: 100
+
+augmentation:
+  mixup_alpha: 1.0

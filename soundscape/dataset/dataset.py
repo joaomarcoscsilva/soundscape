@@ -8,14 +8,18 @@ import librosa
 import pandas as pd
 import soundfile
 import tensorflow as tf
+import tensorflow_io as tfio
 from omegaconf import DictConfig
 from p_tqdm import p_map
 
 from . import preprocessing, split
 
 
-def _read_audio_file(path: str):
-    return tf.audio.decode_wav(tf.io.read_file(path), desired_channels=1)[0]
+def _read_audio_file(path: str, sr: int):
+    audio = tf.audio.decode_wav(tf.io.read_file(path), desired_channels=1)[0]
+    if sr != 22050:
+        audio = tfio.audio.resample(audio, 22050, sr)
+    return audio
 
 
 def _read_image_file(path: str, image_precision: int):
@@ -66,7 +70,7 @@ class Dataset:
 
     def reading_function(self) -> Callable[[str], tf.Tensor]:
         if self.data_type == "audio":
-            return _read_audio_file
+            return partial(_read_audio_file, sr=self.sr)
 
         elif self.data_type == "image":
             return partial(

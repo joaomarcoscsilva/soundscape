@@ -1,0 +1,17 @@
+_target_: soundscape.dataset.dataset.Dataset
+dataset_dir: data/leec
+source_dir: data
+data_type: audio
+sample_length: 5
+sr: 16000
+
+splitting:
+  split_seed: 0
+  splits: ["train", "val", "test"]
+  fractions: [0.6, 0.2, 0.2]
+  stratify: true
+
+preprocessing:
+  raw_dataset_dir: data/wavs
+  labels_file: data/labels.csv
+  pad_mode: reflect
