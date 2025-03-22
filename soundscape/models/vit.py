@@ -34,8 +34,8 @@ def vit(rng, loss_fn, num_classes, model_settings):
 
     def call_vit(batch: Batch, model_state: ModelState, is_training: bool = True):
         params = hk.data_structures.merge(model_state.params, model_state.fixed_params)
-        inputs = batch.inputs.transpose((0, 3, 1, 2))
-        logits = ViT(inputs, params=params)
+        inputs = batch["inputs"].transpose((0, 3, 1, 2))
+        logits = ViT(inputs, params=params).logits
         return Predictions(logits=logits), model_state
 
     model = Model(call_vit, loss_fn)

@@ -1,5 +1,5 @@
 model_name: vit
-initialization: imagenet 
+initialization: google/vit-base-patch16-224-in21k 
 trainable_weights: all
 
-convert_tf_params: true
+convert_tf_params: false
